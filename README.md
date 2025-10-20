@@ -1,0 +1,2 @@
+# Europe CyberScope - CSOMA (CyberSecurity Job Market Analyzer)
+The Cybersecurity Job Market Analyzer (CSOMA) aims to acquire, store, and analyze cybersecurity job advertisements across Europe in real time. The system uses open-source technologies to process and visualize job data, helping identify regional trends and emerging skill demands.
