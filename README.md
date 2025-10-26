@@ -2,7 +2,7 @@
 
 | Dataset | Description |
 |--------|-------------|
-| **LinkedIn Job Ads** | Raw job postings (not included in repo due to size/privacy) |
+| **LinkedIn Job Ads** | Raw job postings |
 | **ECSF Framework** | Official European Cybersecurity Skills Framework |
 
 ### ECSF consists of 3 core tables:
@@ -164,12 +164,3 @@ WHERE title_key = 'chief information security officer (ciso)';
 | Get TKS details | `tks_by_id` |
 
 ---
-
-## 🧪 Troubleshooting Tips
-
-| Issue | Solution |
-|------|----------|
-| `cqlsh` connection refused | Wait longer or restart container |
-| `UNAVAILABLE` error | Cassandra not fully started — check logs |
-| `InvalidRequest` in Python | Check CSV paths or column names |
-| Duplicate key error | Re-run cleaning step |
