@@ -1,0 +1,76 @@
+title_key,work_role_id,is_alt,canonical_title
+chief information security officer (ciso),1,False,Chief Information Security Officer (CISO)
+cybersecurity programme director,1,True,Chief Information Security Officer (CISO)
+information security officer (iso),1,True,Chief Information Security Officer (CISO)
+information security manager,1,True,Chief Information Security Officer (CISO)
+head of information security,1,True,Chief Information Security Officer (CISO)
+it/ict security officer,1,True,Chief Information Security Officer (CISO)
+cyber incident responder,2,False,Cyber Incident Responder
+cyber incident handler,2,True,Cyber Incident Responder
+cyber crisis expert,2,True,Cyber Incident Responder
+incident response engineer,2,True,Cyber Incident Responder
+security operations center (soc) analyst,2,True,Cyber Incident Responder
+cyber fighter /defender,2,True,Cyber Incident Responder
+security operation analyst (soc analyst),2,True,Cyber Incident Responder
+cybersecurity siem manager,2,True,Cyber Incident Responder
+"cyber legal, policy & compliance officer",3,False,"Cyber Legal, Policy & Compliance Officer"
+data protection officer (dpo),3,True,"Cyber Legal, Policy & Compliance Officer"
+privacy protection officer,3,True,"Cyber Legal, Policy & Compliance Officer"
+cyber law consultant,3,True,"Cyber Legal, Policy & Compliance Officer"
+cyber legal advisor,3,True,"Cyber Legal, Policy & Compliance Officer"
+information governance officer,3,True,"Cyber Legal, Policy & Compliance Officer"
+data compliance officer,3,True,"Cyber Legal, Policy & Compliance Officer"
+cybersecurity legal officer,3,True,"Cyber Legal, Policy & Compliance Officer"
+it/ict compliance manager,3,True,"Cyber Legal, Policy & Compliance Officer"
+governance risk compliance (grc) consultant,3,True,"Cyber Legal, Policy & Compliance Officer"
+cyber threat intelligence specialist,4,False,Cyber Threat Intelligence Specialist
+cyber intelligence analyst,4,True,Cyber Threat Intelligence Specialist
+cyber threat modeller,4,True,Cyber Threat Intelligence Specialist
+cybersecurity architect,5,False,Cybersecurity Architect
+cybersecurity solutions architect,5,True,Cybersecurity Architect
+cybersecurity designer,5,True,Cybersecurity Architect
+data security architect,5,True,Cybersecurity Architect
+cybersecurity auditor,6,False,Cybersecurity Auditor
+information security auditor (it or legal auditor),6,True,Cybersecurity Auditor
+governance risk compliance (grc) auditor,6,True,Cybersecurity Auditor
+cybersecurity audit manager,6,True,Cybersecurity Auditor
+cybersecurity procedures and processes auditor,6,True,Cybersecurity Auditor
+information security risk and compliance auditor,6,True,Cybersecurity Auditor
+data protection assessment analyst,6,True,Cybersecurity Auditor
+cybersecurity educator,7,False,Cybersecurity Educator
+cybersecurity awareness specialist,7,True,Cybersecurity Educator
+cybersecurity trainer,7,True,Cybersecurity Educator
+"faculty in cybersecurity (professor, lecturer)",7,True,Cybersecurity Educator
+cybersecurity implementer,8,False,Cybersecurity Implementer
+information security implementer,8,True,Cybersecurity Implementer
+cybersecurity solutions expert,8,True,Cybersecurity Implementer
+cybersecurity developer,8,True,Cybersecurity Implementer
+cybersecurity engineer,8,True,Cybersecurity Implementer
+"development, security & operations (devsecops) engineer",8,True,Cybersecurity Implementer
+cybersecurity researcher,9,False,Cybersecurity Researcher
+cybersecurity research engineer,9,True,Cybersecurity Researcher
+chief research officer (cro) in cybersecurity,9,True,Cybersecurity Researcher
+senior research officer in cybersecurity,9,True,Cybersecurity Researcher
+research and development (r&d) officer in cybersecurity,9,True,Cybersecurity Researcher
+scientific staff in cybersecurity,9,True,Cybersecurity Researcher
+research and innovation officer/expert in cybersecurity,9,True,Cybersecurity Researcher
+research fellow in cybersecurity,9,True,Cybersecurity Researcher
+cybersecurity risk manager,10,False,Cybersecurity Risk Manager
+information security risk analyst,10,True,Cybersecurity Risk Manager
+cybersecurity risk assurance consultant,10,True,Cybersecurity Risk Manager
+cybersecurity risk assessor,10,True,Cybersecurity Risk Manager
+cybersecurity impact analyst,10,True,Cybersecurity Risk Manager
+cyber risk manager,10,True,Cybersecurity Risk Manager
+digital forensics investigator,11,False,Digital Forensics Investigator
+digital forensics analyst,11,True,Digital Forensics Investigator
+cybersecurity & forensic specialist,11,True,Digital Forensics Investigator
+computer forensics consultant,11,True,Digital Forensics Investigator
+penetration tester,12,False,Penetration Tester
+pentester,12,True,Penetration Tester
+ethical hacker,12,True,Penetration Tester
+vulnerability analyst,12,True,Penetration Tester
+cybersecurity tester,12,True,Penetration Tester
+offensive cybersecurity expert,12,True,Penetration Tester
+defensive cybersecurity expert,12,True,Penetration Tester
+red team expert,12,True,Penetration Tester
+red teamer,12,True,Penetration Tester
