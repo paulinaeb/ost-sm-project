@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  cassandra-dev:
+    image: cassandra:4.1
+    container_name: cassandra-dev
+    ports:
+      - "9042:9042"
+      - "9160:9160"
+    volumes:
+      - cassandra-data:/var/lib/cassandra
+    environment: {}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "cqlsh", "-e", "describe cluster"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+    networks:
+      - cassandra-net
+
+  cassandra-web:
+    image: ipushc/cassandra-web:latest
+    container_name: cassandra-web
+    depends_on:
+      cassandra-dev:
+        condition: service_healthy
+    environment:
+      - CASSANDRA_HOST=cassandra-dev
+      - CASSANDRA_PORT=9042
+    ports:
+      - "8081:8083"
+    restart: unless-stopped
+    networks:
+      - cassandra-net
+
+volumes:
+  cassandra-data:
+
+networks:
+  cassandra-net:
+    driver: bridge
+
+# Quick start:
+# docker-compose -f docker-compose.yml up -d
+# Then open http://localhost:8081 for the Cassandra web UI
