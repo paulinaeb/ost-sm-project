@@ -6,7 +6,7 @@ from cassandra.cluster import Cluster
 from cassandra.query import PreparedStatement
 from cassandra import InvalidRequest
 
-DATA_DIR = "C://Samiha-SZTAKI//university//Master Degree ELTE//2. second year//Open source technologies for data science//ost-sm-project//data//ecsf_cleaned"  # e.g. ./ecsf_cleaned
+DATA_DIR = "./"
 CONTACT_POINTS = ["127.0.0.1"]  # change if your Cassandra is remote
 KEYSPACE = "ecsf"
 
