@@ -6,7 +6,7 @@ from cassandra.cluster import Cluster
 from cassandra.query import PreparedStatement
 from cassandra import InvalidRequest
 
-DATA_DIR = "./"
+DATA_DIR = os.path.dirname(os.path.abspath(__file__))  # Same directory as this script
 CONTACT_POINTS = ["127.0.0.1"]  # change if your Cassandra is remote
 KEYSPACE = "ecsf"
 
