@@ -5,24 +5,7 @@ The system leverages open-source technologies to identify **regional trends**, *
 
 ---
 
-## 📁 Dataset Sources
-
-| Type | Location | Description |
-|------|-----------|--------------|
-| Dynamic (simulated) | [Google Drive Folder](https://drive.google.com/drive/u/1/folders/1Ult_m13_--7MYIEA8JGtRRzqX8hyaz3W) | Periodically updated simulated job ads |
-| Static | [GitHub Dataset – ENISA ECSF](https://github.com/opliyal3/ENISA-ECSF-Dataset/tree/main) | Reference dataset for ECSF-aligned skills |
-
----
-
-## ⚙️ Quick Start Guide
-
-### 0. Clone the Repository
-```bash
-git clone <https://github.com/paulinaeb/ost-sm-project.git>
-# Europe CyberScope - CSOMA (CyberSecurity Job Market Analyzer)
-The Cybersecurity Job Market Analyzer (CSOMA) aims to acquire, store, and analyze cybersecurity job advertisements across Europe in real time. The system uses open-source technologies to process and visualize job data, helping identify regional trends and emerging skill demands.
-
-# Streaming Architecture
+## Stream mining Architecture
 
 ```
 CSV File → Kafka Producer → Kafka Topic → Kafka Consumer → Cassandra
@@ -33,10 +16,13 @@ CSV File → Kafka Producer → Kafka Topic → Kafka Consumer → Cassandra
          PARALLEL EXECUTION: Producer & Consumer run simultaneously
 ```
 
-# How to run: get cassandra config and data, then start streaming!
+---
 
-0. Clone this repo 
-git clone https://github.com/paulinaeb/ost-sm-project/
+## ⚙️ Quick Start Guide
+
+### 0. Clone the Repository
+```bash
+git clone <https://github.com/paulinaeb/ost-sm-project.git>
 cd ost-sm-project
 ```
 
@@ -52,8 +38,62 @@ docker logs -f cassandra-dev
 ### 2. Set Up Python Environment
 ```bash
 python -m venv venv
-.\venv\Scripts\Activate.ps1
-pip install requirements.txt
+source venv/bin/activate   # (Linux/Mac)
+venv\Scripts\activate      # (Windows)
+pip install -r requirements.txt
+```
 
-3. Load data with python
+### 3. Initialize Database Schema
+Access the Cassandra container:
+```bash
+docker exec -it cassandra-dev cqlsh
+```
+Then, inside `cqlsh`, run:
+```sql
+SOURCE 'preprocessing/ECSF/keyspace_tables_creation.sql';
+```
+*Alternatively, copy-paste the SQL script directly into the terminal.*
+
+### 4. Load ECSF Data
+```bash
 python preprocessing/ECSF/load_ecsf.py
+```
+
+### 5. Start stream mining!
+```powershell
+# Start consumer first (in one terminal) - it will wait for messages
+python streaming\kafka_consumer.py
+
+# 2. Start producer (in another terminal) - it will publish jobs
+python streaming\kafka_producer.py
+
+# Watch as messages are consumed and stored in real-time!
+# Press Ctrl+C in consumer terminal when done
+```
+
+---
+
+## Access Points
+
+| Service | URL | Purpose |
+|---------|-----|---------|
+| Cassandra Web UI | http://localhost:8081 | Browse Cassandra data |
+| Kafka UI | http://localhost:8080 | Monitor Kafka topics |
+| Cassandra CQL | localhost:9042 | Direct CQL access |
+| Kafka Broker | localhost:29092 | Producer/Consumer connection |
+
+---
+
+## 📁 Dataset Sources
+
+| Type | Location | Description |
+|------|-----------|--------------|
+| Dynamic (simulated) | [Google Drive Folder](https://drive.google.com/drive/u/1/folders/1Ult_m13_--7MYIEA8JGtRRzqX8hyaz3W) | Periodically updated simulated job ads |
+| Static | [GitHub Dataset – ENISA ECSF](https://github.com/opliyal3/ENISA-ECSF-Dataset/tree/main) | Reference dataset for ECSF-aligned skills |
+
+---
+
+## 👩‍💻 Maintainers
+
+**Europe CyberScope Team**  
+Contributions and issue reports are welcome — please open a GitHub issue or submit a pull request.
