@@ -61,10 +61,10 @@ python preprocessing/ECSF/load_ecsf.py
 
 ### 5. Start stream mining!
 ```powershell
-# Start consumer first (in one terminal) - it will wait for messages
+# Start consumer first (in one terminal) - it will wait for messages & creates DB structure if needed
 python streaming\kafka_consumer.py
 
-# 2. Start producer (in another terminal) - it will publish jobs
+# 2. Start producer (in another terminal) - it will publish jobs to a kafka topic
 python streaming\kafka_producer.py
 
 # Watch as messages are consumed and stored in real-time!
