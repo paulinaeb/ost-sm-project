@@ -84,6 +84,27 @@ services:
       - "8080:8080"
     networks:
       - cassandra-net
+  
+  streamlit:
+    image: python:3.11-slim
+    container_name: streamlit
+    working_dir: /app
+    command: bash -lc "pip install -r forecasting/requirements-analytics.txt && streamlit run forecasting/streamlit_app.py --server.port=8501 --server.address=0.0.0.0"
+    volumes:
+      - ./:/app
+    environment:
+      - CASSANDRA_HOSTS=cassandra-dev
+      - CASSANDRA_PORT=9042
+      - CASSANDRA_KEYSPACE=linkedin_jobs   # <-- change to your real keyspace
+      - CASSANDRA_TABLE=jobs               # <-- change to your real table
+    ports:
+      - "8501:8501"
+    depends_on:
+      cassandra-dev:
+        condition: service_healthy
+    networks:
+      - cassandra-net
+
 
 volumes:
   cassandra-data:
