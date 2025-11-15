@@ -1,3 +1,5 @@
 /venv
 .DS_Store
 preprocessing/.DS_Store
+__pycache__/
+*.pyc
