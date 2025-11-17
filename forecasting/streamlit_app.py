@@ -59,7 +59,7 @@ def fetch_recent(minutes=60):
 
 
 # ============== UI ==================
-minutes = st.slider("Lookback window (minutes)", 5, 240, LOOKBACK_MINUTES)
+minutes = st.session_state.get("lookback_minutes", LOOKBACK_MINUTES)
 
 df = fetch_recent(minutes)
 
