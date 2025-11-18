@@ -12,6 +12,16 @@ ost-sm-project/
 │   ├── cassandra_client.py     # Cassandra DB adapter
 │   ├── forecasting.py
 │   ├── README.md
+    ├── pages/
+        ├── phase1.py
+        ├── phase2.py
+        ├── phase3.py   <-- Phase 3 is inside main file
+        └── phase4.py
+
+
+## Everyone should work on their part through phase1,2,3,4 files inside pages parellel to streamlit_app.py file ##
+
+## Make sure not to call "st.set_page_config()" inside phase files. It must appear only once in the entire project inside streamlit_app.py. ##
 
 # Streamlit Dashboard #
 
