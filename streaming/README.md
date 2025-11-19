@@ -61,6 +61,7 @@ docker exec cassandra-dev cqlsh -e "SELECT id, title, company_name FROM linkedin
 # 1. Start consumer first (in one terminal) - it will wait for messages
 python streaming\kafka_consumer.py
 
+
 # 2. Start producer (in another terminal) - it will publish jobs
 python streaming\kafka_producer.py
 
