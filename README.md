@@ -8,7 +8,7 @@ The system leverages open-source technologies to identify **regional trends**, *
 ## Stream mining Architecture
 
 ```
-CSV File → Kafka Producer → Kafka Topic → Kafka Consumer → Cassandra
+CSV File → Kafka Producer → Kafka Topic → Kafka Consumer → Cassandra  → Streamlit Live Dashboard.
               ↓                 ↓                            ↓
         (simulates      (KRaft mode -               (linkedin_jobs_db)
          real-time)     no ZooKeeper)               (separate database)
@@ -30,10 +30,7 @@ cd ost-sm-project
 ```bash
 docker-compose up -d
 ```
-Wait for **Cassandra** to become healthy (approx. 1–2 minutes):
-```bash
-docker logs -f cassandra-dev
-```
+Wait for **All dependencies** to be running and healthy.
 
 ### 2. Set Up Python Environment
 ```bash
@@ -43,7 +40,7 @@ venv\Scripts\activate      # (Windows)
 pip install -r requirements.txt
 ```
 
-### 3. Initialize Database Schema
+### 3. Initialize Database Schema (for the static dataset - ECSF)
 Access the Cassandra container:
 ```bash
 docker exec -it cassandra-dev cqlsh
@@ -59,16 +56,19 @@ SOURCE 'preprocessing/ECSF/keyspace_tables_creation.sql';
 python preprocessing/ECSF/load_ecsf.py
 ```
 
-### 5. Start stream mining!
+### 5. Start stream mining Job Ads!
 ```powershell
-# Start consumer first (in one terminal) - it will wait for messages & creates DB structure if needed
+# Start consumer first (in one terminal with venv activated) - it will wait for messages & creates DB structure if needed
 python streaming\kafka_consumer.py
 
-# 2. Start producer (in another terminal) - it will publish jobs to a kafka topic
+# 2. Start producer (in another terminal with venv activated) - it will publish jobs to a kafka topic
 python streaming\kafka_producer.py
 
 # Watch as messages are consumed and stored in real-time!
 # Press Ctrl+C in consumer terminal when done
+
+# If you wish to start stream mining again, run the following command to truncate the dynamic database
+docker exec -it cassandra-dev cqlsh -e "TRUNCATE linkedin_jobs.jobs;"
 ```
 
 ---
@@ -77,6 +77,7 @@ python streaming\kafka_producer.py
 
 | Service | URL | Purpose |
 |---------|-----|---------|
+| Streamlit Dashboard | http://localhost:8501 | See stream mining & visualizations|
 | Cassandra Web UI | http://localhost:8081 | Browse Cassandra data |
 | Kafka UI | http://localhost:8080 | Monitor Kafka topics |
 | Cassandra CQL | localhost:9042 | Direct CQL access |
