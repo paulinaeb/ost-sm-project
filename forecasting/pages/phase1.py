@@ -1,3 +1,7 @@
 import streamlit as st
+from footer_utils import add_footer
 
-st.title("📘 Phase 1 – Data Exploration")
+def run():
+    st.title("🌍 Country Radar")
+    st.write("Content for Country Radar page coming soon...")
+    add_footer("Paulina Espejo")

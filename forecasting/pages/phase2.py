@@ -1,3 +1,7 @@
 import streamlit as st
+from footer_utils import add_footer
 
-st.title("📘 Phase 1 – Data Exploration")
+def run():
+    st.title("📈 Predictive Insights")
+    st.write("Content for Predictive Insights page coming soon...")
+    add_footer("Tibor Buti")

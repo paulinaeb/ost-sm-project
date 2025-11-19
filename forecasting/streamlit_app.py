@@ -4,6 +4,7 @@ import streamlit as st
 from datetime import datetime, timedelta, timezone
 from cassandra_client import get_session, validate_keyspace
 from streamlit_autorefresh import st_autorefresh
+from footer_utils import add_footer
 import importlib
 
 # ==============================================================================
@@ -14,6 +15,11 @@ st.set_page_config(page_title="LinkedIn Jobs – Live Stream", layout="wide")
 # ===================== FIXED HORIZONTAL NAV BAR =====================
 st.markdown("""
     <style>
+        /* Hide the default sidebar */
+        [data-testid="stSidebar"], .st-emotion-cache-hzo1qh.eczjsme5 {
+            display: none;
+        }
+        
         .nav-container {
             width: 100%;
             display: flex;
@@ -53,16 +59,17 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-current_phase = st.query_params.get("phase", "Phase 3")
+current_phase = st.query_params.get("phase", "Dashboard")
 
 # ---- ALL BUTTONS IN ONE SINGLE BLOCK ----
 st.markdown(
     f"""
     <div class="nav-container">
-        <a class="nav-btn phase1 {'active-btn' if current_phase=='Phase 1' else ''}" href="?phase=Phase 1">Phase 1</a>
-        <a class="nav-btn phase2 {'active-btn' if current_phase=='Phase 2' else ''}" href="?phase=Phase 2">Phase 2</a>
-        <a class="nav-btn phase3 {'active-btn' if current_phase=='Phase 3' else ''}" href="?phase=Phase 3">Phase 3</a>
-        <a class="nav-btn phase4 {'active-btn' if current_phase=='Phase 4' else ''}" href="?phase=Phase 4">Phase 4</a>
+        <a class="nav-btn phase3 {'active-btn' if current_phase=='Dashboard' else ''}" href="?phase=Dashboard">Dashboard</a>
+        <a class="nav-btn phase1 {'active-btn' if current_phase=='🌍 Country radar' else ''}" href="?phase=🌍 Country radar">🌍 Country radar</a>
+        <a class="nav-btn phase2 {'active-btn' if current_phase=='📈 Predictive insights' else ''}" href="?phase=📈 Predictive insights">📈 Predictive insights</a>
+        <a class="nav-btn phase4 {'active-btn' if current_phase=='🔍 Matching tracker' else ''}" href="?phase=🔍 Matching tracker">🔍 Matching tracker</a>
+        <a class="nav-btn phase1 {'active-btn' if current_phase=='📡 Change detector' else ''}" href="?phase=📡 Change detector">📡 Change detector</a>
     </div>
     """,
     unsafe_allow_html=True
@@ -287,19 +294,25 @@ def run_phase3():
     st.subheader("🏢 Top Companies")
     top_companies = df["company_name"].value_counts().head(10)
     st.bar_chart(top_companies)
+    
+    # ---------------- FOOTER ----------------
+    add_footer("CSOMA Team")
 
 
 # ==============================================================================
 # ROUTING USING TOP MENU
 # ==============================================================================
-if current_phase == "Phase 1":
+if current_phase == "Dashboard":
+    run_phase3()
+
+elif current_phase == "🌍 Country radar":
     load_other_phase("pages.phase1")
 
-elif current_phase == "Phase 2":
+elif current_phase == "📈 Predictive insights":
     load_other_phase("pages.phase2")
 
-elif current_phase == "Phase 3":
-    run_phase3()  # 🔥 YOUR ENTIRE DASHBOARD
-
-elif current_phase == "Phase 4":
+elif current_phase == "🔍 Matching tracker":
     load_other_phase("pages.phase4")
+
+elif current_phase == "📡 Change detector":
+    load_other_phase("pages.phase5")
