@@ -2,7 +2,7 @@ import os
 import pandas as pd
 import streamlit as st
 from datetime import datetime, timedelta, timezone
-from cassandra_client import get_session
+from cassandra_client import get_session, validate_keyspace
 from streamlit_autorefresh import st_autorefresh
 import importlib
 
@@ -94,6 +94,24 @@ def run_phase3():
     LOOKBACK_MINUTES = 60
 
     st.title("🔴 Live LinkedIn Jobs Stream")
+    
+    # ---------------- VALIDATE KEYSPACE ----------------
+    keyspace_exists, error_msg = validate_keyspace()
+    if not keyspace_exists:
+        st.error(f"❌ **Database Connection Error**")
+        st.warning(error_msg)
+        st.info("""
+        **To fix this:**
+        1. Make sure Cassandra is running: `docker-compose up -d`
+        2. If everything is running, and the databse does not exist, create it by running:
+           ```bash
+                python streaming\kafka_consumer.py
+        3. Start the producer to ingest data, if you wish to see live streaming:
+              ```bash
+                 python streaming\kafka_producer.py
+        4. Refresh this page after completing the above steps.
+        """)
+        st.stop()
 
     # ---------------- HELPERS ----------------
     def per_bucket_counts(df, bucket="1min"):

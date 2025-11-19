@@ -19,3 +19,26 @@ def get_session():
     session.set_keyspace(CASSANDRA_KEYSPACE)
     session.row_factory = dict_factory
     return session
+
+def validate_keyspace():
+    """
+    Check if the configured keyspace exists in Cassandra.
+    Returns tuple: (bool: exists, str: error_message or None)
+    """
+    try:
+        cluster = Cluster(CASSANDRA_HOSTS, port=CASSANDRA_PORT)
+        session = cluster.connect()
+        
+        # Query system schema to check if keyspace exists
+        query = "SELECT keyspace_name FROM system_schema.keyspaces WHERE keyspace_name = %s"
+        result = session.execute(query, (CASSANDRA_KEYSPACE,))
+        
+        if result.one() is None:
+            return False, f"Keyspace '{CASSANDRA_KEYSPACE}' does not exist. Please create it first."
+        
+        session.shutdown()
+        cluster.shutdown()
+        return True, None
+        
+    except Exception as e:
+        return False, f"Failed to connect to Cassandra: {str(e)}"
