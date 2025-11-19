@@ -224,12 +224,12 @@ def run_phase3():
     st.write("Last refresh:", datetime.utcnow().strftime("%H:%M:%S.%f"))
 
     # ---------------- TABLE ----------------
-    st.subheader("📥 Latest Jobs (Recent Stream)")
+    st.subheader("📥 Latest Jobs")
     cols = ["ts", "title", "company_name", "location", "country", "skill"]
     st.dataframe(df[cols].tail(100), use_container_width=True)
 
     # ---------------- AUTO REFRESH ----------------
-    st.subheader("🔄 Live Updates (Auto Refresh Every 2s)")
+    st.subheader("🔄 Live Updates")
     st_autorefresh(interval=2000, key="live_refresh")
 
     df_live = fetch_recent(60)
@@ -284,7 +284,7 @@ def run_phase3():
         st.info("No 2-second frequency data yet…")
 
     # ---------------- TOP COMPANIES ----------------
-    st.subheader("🏢 Top Companies (Recent Stream)")
+    st.subheader("🏢 Top Companies")
     top_companies = df["company_name"].value_counts().head(10)
     st.bar_chart(top_companies)
 
