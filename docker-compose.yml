@@ -95,8 +95,8 @@ services:
     environment:
       - CASSANDRA_HOSTS=cassandra-dev
       - CASSANDRA_PORT=9042
-      - CASSANDRA_KEYSPACE=linkedin_jobs        # ✅ your real keyspace
-      - CASSANDRA_TABLE=jobs  # ✅ your real table
+      - CASSANDRA_KEYSPACE=linkedin_jobs
+      - CASSANDRA_TABLE=jobs
     ports:
       - "8501:8501"
     depends_on:
