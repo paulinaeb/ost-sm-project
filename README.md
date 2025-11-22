@@ -85,6 +85,48 @@ docker exec -it cassandra-dev cqlsh -e "TRUNCATE linkedin_jobs.jobs;"
 
 ---
 
+## 📊 Dashboard & Visualizations
+
+The **Streamlit Dashboard** provides an interactive interface to explore cybersecurity job market data across Europe. 
+Access it at http://localhost:8501 after starting the services.
+
+### Navigation Tabs
+
+The dashboard features horizontal navigation with the following sections:
+
+| Tab | Description |
+|-----|-------------|
+| **📈 Dashboard** | Real-time streaming overview with live job ingestion monitoring, time-based aggregations, and quick statistics |
+| **🌍 Country Radar** | European job market analysis with interactive visualizations (see below) |
+| **📈 Predictive Insights** | Market trend forecasting and predictions *(coming soon)* |
+| **🔍 Matching Tracker** | Job-skill matching and recommendation system *(coming soon)* |
+| **📡 Change Detector** | Real-time anomaly detection and market shifts *(coming soon)* |
+
+### Country Radar Visualizations
+
+The **Country Radar** tab offers comprehensive European cybersecurity job market insights:
+
+1. **🗺️ Interactive Choropleth Map**
+   - Displays job distribution across European countries
+   - Color-coded by job frequency (darker = more jobs)
+   - Hover to see: country name, job count, and most common job title
+
+2. **🎯 Top Jobs by Country**
+   - Horizontal bar chart showing top 10 job titles
+   - Country-specific metrics: total jobs, companies, job titles, and skills
+   - Expandable table with recent job postings
+
+3. **🌍 Top European Countries Ranking**
+   - Bar chart of top 10 countries by job volume
+   - Percentage distribution breakdown
+   - Real-time statistics: total jobs across all countries
+
+All visualizations support dual modes:
+- **Database Mode**: Historical data analysis
+- **Streaming Mode**: Real-time updates with 3-second refresh (auto-refresh enabled)
+
+---
+
 ## 📁 Dataset Sources
 
 | Type | Location | Description |
