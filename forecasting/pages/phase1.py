@@ -82,16 +82,6 @@ def run():
         )
         return country_counts.sort_values('job_count', ascending=False)
     
-    def aggregate_by_week(df):
-        """Group data by week for time slider"""
-        if df.empty:
-            return pd.DataFrame()
-        
-        df['week'] = df['ts'].dt.to_period('W').dt.start_time
-        weekly = df.groupby(['week', 'country_iso']).size().reset_index(name='job_count')
-        weekly['country_name'] = weekly['country_iso'].map(lambda x: ISO_TO_NAME.get(x, x))
-        return weekly
-    
     # ---------------- VISUALIZATIONS ----------------
     def create_choropleth_map(df, title="Job Distribution Across Europe", height=600):
         """Create European choropleth map"""
@@ -114,7 +104,7 @@ def run():
             labels={'job_count': 'Number of Jobs'}
         )
         
-        # Focus on Europe
+        # Focus on Europe (zoom to EU zone)
         fig.update_geos(
             scope='europe',
             showcountries=True,
@@ -122,8 +112,70 @@ def run():
             showcoastlines=True,
             coastlinecolor="gray",
             projection_type='natural earth',
-            bgcolor='rgba(0,0,0,0)'
+            bgcolor='rgba(0,0,0,0)',
+            # Zoom to EU zone (longitude: -10 to 30, latitude: 35 to 70)
+            lonaxis_range=[-12, 32],
+            lataxis_range=[35, 72]
         )
+        
+        # Add country name labels on the map using Scattergeo
+        # Country centroids (approximate) for major EU countries
+        country_centroids = {
+            'GBR': {'lon': -2, 'lat': 54, 'name': 'UK'},
+            'FRA': {'lon': 2, 'lat': 47, 'name': 'France'},
+            'DEU': {'lon': 10, 'lat': 51, 'name': 'Germany'},
+            'ITA': {'lon': 12, 'lat': 42, 'name': 'Italy'},
+            'ESP': {'lon': -4, 'lat': 40, 'name': 'Spain'},
+            'POL': {'lon': 19, 'lat': 52, 'name': 'Poland'},
+            'ROU': {'lon': 25, 'lat': 46, 'name': 'Romania'},
+            'NLD': {'lon': 5, 'lat': 52, 'name': 'Netherlands'},
+            'BEL': {'lon': 4, 'lat': 50, 'name': 'Belgium'},
+            'GRC': {'lon': 22, 'lat': 39, 'name': 'Greece'},
+            'CZE': {'lon': 15, 'lat': 49, 'name': 'Czechia'},
+            'PRT': {'lon': -8, 'lat': 39, 'name': 'Portugal'},
+            'SWE': {'lon': 15, 'lat': 62, 'name': 'Sweden'},
+            'HUN': {'lon': 19, 'lat': 47, 'name': 'Hungary'},
+            'AUT': {'lon': 14, 'lat': 47, 'name': 'Austria'},
+            'BGR': {'lon': 25, 'lat': 43, 'name': 'Bulgaria'},
+            'DNK': {'lon': 9, 'lat': 56, 'name': 'Denmark'},
+            'FIN': {'lon': 26, 'lat': 64, 'name': 'Finland'},
+            'SVK': {'lon': 19, 'lat': 48, 'name': 'Slovakia'},
+            'IRL': {'lon': -8, 'lat': 53, 'name': 'Ireland'},
+            'HRV': {'lon': 16, 'lat': 45, 'name': 'Croatia'},
+            'SVN': {'lon': 14, 'lat': 46, 'name': 'Slovenia'},
+            'LTU': {'lon': 24, 'lat': 55, 'name': 'Lithuania'},
+            'LVA': {'lon': 25, 'lat': 57, 'name': 'Latvia'},
+            'EST': {'lon': 25, 'lat': 59, 'name': 'Estonia'},
+            'CHE': {'lon': 8, 'lat': 47, 'name': 'Switzerland'},
+            'NOR': {'lon': 10, 'lat': 60, 'name': 'Norway'},
+        }
+        
+        # Add text labels using Scattergeo trace for countries with data
+        label_lons = []
+        label_lats = []
+        label_texts = []
+        
+        for iso in country_data['country_iso']:
+            if iso in country_centroids:
+                centroid = country_centroids[iso]
+                label_lons.append(centroid['lon'])
+                label_lats.append(centroid['lat'])
+                label_texts.append(centroid['name'])
+        
+        # Add text layer
+        fig.add_trace(go.Scattergeo(
+            lon=label_lons,
+            lat=label_lats,
+            text=label_texts,
+            mode='text',
+            textfont=dict(
+                size=10,
+                color='white',
+                family='Arial Black'
+            ),
+            hoverinfo='skip',
+            showlegend=False
+        ))
         
         fig.update_layout(
             height=height,
@@ -266,57 +318,10 @@ def run():
     col_map, col_info = st.columns([3, 1])
     
     with col_map:
-        # Time slider (only in database mode)
-        if mode == "📁 View Existing Database" and not df.empty:
-            st.subheader("📅 Time Period Selector")
-            
-            # Get date range
-            min_date = df['ts'].min().date()
-            max_date = df['ts'].max().date()
-            
-            # Calculate weeks
-            df['week'] = df['ts'].dt.to_period('W').apply(lambda x: x.start_time.date())
-            weeks = sorted(df['week'].unique())
-            
-            if len(weeks) > 1:
-                col_slider, col_animate = st.columns([4, 1])
-                
-                with col_slider:
-                    selected_week_idx = st.slider(
-                        "Select Week",
-                        min_value=0,
-                        max_value=len(weeks) - 1,
-                        value=len(weeks) - 1,
-                        format="Week %d",
-                        help="Slide to view different weeks"
-                    )
-                
-                with col_animate:
-                    animate = st.checkbox("🎬 Animate", help="Auto-play through weeks")
-                
-                selected_week = weeks[selected_week_idx]
-                
-                # Filter by selected week
-                df_map = df[df['week'] == selected_week].copy()
-                
-                st.caption(f"📆 Showing data for week starting: **{selected_week}**")
-                
-                # Animation logic
-                if animate:
-                    if 'week_idx' not in st.session_state:
-                        st.session_state.week_idx = 0
-                    
-                    if st.session_state.week_idx < len(weeks) - 1:
-                        st.session_state.week_idx += 1
-                        st.rerun()
-                    else:
-                        st.session_state.week_idx = 0
-            else:
-                df_map = df
-                st.caption(f"📆 Showing all data (single week available)")
-        else:
-            # Streaming mode - show cumulative
-            df_map = df
+        # Use all data for the map (no time filtering)
+        df_map = df
+        
+        if mode == "⚡ Real-time Streaming":
             st.caption("🔴 **Live Mode:** Showing cumulative data from recent stream")
         
         # Create and display map
@@ -330,7 +335,7 @@ def run():
                 key="choropleth_map"
             )
             
-            st.caption("💡 **Tip:** Darker colors indicate more job postings. Click a country to see its top jobs below.")
+            st.caption("💡 **Tip:** Darker colors indicate more job postings. Hover over a country to see the job count. Select a country from the dropdown below to see its top jobs.")
         else:
             st.info("No map data available for the selected period.")
     
