@@ -205,16 +205,22 @@ def run():
         return fig
     
     def create_top_jobs_chart(df, country_iso, top_n=10):
-        """Create horizontal bar chart of top jobs in a country"""
-        if df.empty or country_iso is None:
+        """Create horizontal bar chart of top jobs in a country or all countries"""
+        if df.empty:
             return None
         
-        df_country = df[df['country_iso'] == country_iso]
+        # Handle 'All' option
+        if country_iso == 'All' or country_iso is None:
+            df_filtered = df
+            country_name = "All Countries"
+        else:
+            df_filtered = df[df['country_iso'] == country_iso]
+            country_name = ISO_TO_NAME.get(country_iso, country_iso)
         
-        if df_country.empty:
+        if df_filtered.empty:
             return None
         
-        top_jobs = df_country['title'].value_counts().head(top_n)
+        top_jobs = df_filtered['title'].value_counts().head(top_n)
         
         fig = go.Figure(go.Bar(
             x=top_jobs.values,
@@ -222,8 +228,6 @@ def run():
             orientation='h',
             marker=dict(color='rgb(55, 83, 109)')
         ))
-        
-        country_name = ISO_TO_NAME.get(country_iso, country_iso)
         
         fig.update_layout(
             title=f"Top {top_n} Job Types in {country_name}",
@@ -350,7 +354,7 @@ def run():
                 key="choropleth_map"
             )
             
-            st.caption("💡 **Tip:** Darker colors indicate more job postings. Hover over a country to see the job count. Select a country from the dropdown below to see its top jobs.")
+            st.caption("💡 **Tip:** Darker colors indicate more job postings. Hover over a country to see the job count and its most common job.")
         else:
             st.info("No map data available for the selected period.")
     
@@ -403,12 +407,15 @@ def run():
             for iso in countries_with_data.index
         }
         
-        sorted_countries = sorted(country_options.keys())
+        # Add 'All' option at the beginning
+        sorted_countries = ['All'] + sorted(country_options.keys())
+        country_options['All'] = 'All'
         
         selected_country_name = st.selectbox(
             "Choose a country",
             options=sorted_countries,
-            help="Select a country to see its top job types"
+            index=0,  # Default to 'All'
+            help="Select a country to see its top job types, or 'All' for overall top jobs"
         )
         
         selected_country_iso = country_options[selected_country_name]
@@ -419,12 +426,18 @@ def run():
         st.divider()
         
         # Country-specific metrics
-        df_country = df[df['country_iso'] == selected_country_iso]
-        
-        st.metric("Jobs in Country", len(df_country))
-        st.metric("Unique Companies", df_country['company_name'].nunique())
-        st.metric("Unique Job Titles", df_country['title'].nunique())
-        st.metric("Unique Skills", df_country['skill'].nunique())
+        if selected_country_iso == 'All':
+            df_country = df
+            st.metric("Total Jobs", len(df_country))
+            st.metric("Countries", df_country['country_iso'].nunique())
+            st.metric("Unique Companies", df_country['company_name'].nunique())
+            st.metric("Unique Job Titles", df_country['title'].nunique())
+        else:
+            df_country = df[df['country_iso'] == selected_country_iso]
+            st.metric("Jobs in Country", len(df_country))
+            st.metric("Unique Companies", df_country['company_name'].nunique())
+            st.metric("Unique Job Titles", df_country['title'].nunique())
+            st.metric("Unique Skills", df_country['skill'].nunique())
     
     with col_chart:
         fig_jobs = create_top_jobs_chart(df, selected_country_iso, top_n=10)
@@ -436,8 +449,9 @@ def run():
         
         # Show sample jobs
         if not df_country.empty:
-            with st.expander("📋 View Recent Jobs in " + selected_country_name):
-                cols_display = ['title', 'company_name', 'location', 'skill', 'ts']
+            expander_title = "📋 View Recent Jobs" if selected_country_iso == 'All' else f"📋 View Recent Jobs in {selected_country_name}"
+            with st.expander(expander_title):
+                cols_display = ['title', 'company_name', 'location', 'country', 'skill', 'ts'] if selected_country_iso == 'All' else ['title', 'company_name', 'location', 'skill', 'ts']
                 st.dataframe(
                     df_country[cols_display].sort_values('ts', ascending=False).head(20),
                     use_container_width=True
@@ -450,61 +464,30 @@ def run():
     # ============================================================================
     st.header("🌍 Top European Countries Ranking")
     
-    col_filter, col_chart = st.columns([1, 3])
+    col_stats, col_chart = st.columns([1, 3])
     
-    with col_filter:
-        st.subheader("Filter Options")
-        
-        # Job type filter
-        job_types = ["All"] + sorted(df['title'].unique().tolist())
-        
-        selected_job = st.selectbox(
-            "Filter by Job Type",
-            options=job_types,
-            help="Filter countries by specific job type"
-        )
-        
-        st.divider()
-        
+    with col_stats:
         # Show percentage breakdown
         st.subheader("📊 Distribution")
         
-        df_filtered = df if selected_job == "All" else df[df['title'] == selected_job]
+        total_jobs = len(df)
+        st.metric("Total Jobs", total_jobs)
         
-        total_filtered = len(df_filtered)
-        st.metric("Total Jobs", total_filtered)
-        
-        top_10_countries = df_filtered['country_iso'].value_counts().head(10)
+        top_10_countries = df['country_iso'].value_counts().head(10)
         
         st.caption("**Top 10 Countries:**")
         for rank, (iso, count) in enumerate(top_10_countries.items(), 1):
             country_name = ISO_TO_NAME.get(iso, iso)
-            percentage = (count / total_filtered) * 100
+            percentage = (count / total_jobs) * 100
             st.write(f"{rank}. **{country_name}**: {count} ({percentage:.1f}%)")
     
     with col_chart:
-        fig_countries = create_top_countries_chart(df, job_filter=selected_job, top_n=10)
+        fig_countries = create_top_countries_chart(df, job_filter=None, top_n=10)
         
         if fig_countries:
             st.plotly_chart(fig_countries, use_container_width=True)
         else:
-            st.info("No data available for the selected filter.")
-        
-        # Geographic distribution insight
-        if selected_job != "All":
-            with st.expander(f"🔍 Insights for '{selected_job}'"):
-                df_job = df[df['title'] == selected_job]
-                
-                col1, col2, col3 = st.columns(3)
-                col1.metric("Total Jobs", len(df_job))
-                col2.metric("Countries", df_job['country_iso'].nunique())
-                col3.metric("Companies Hiring", df_job['company_name'].nunique())
-                
-                # Top companies hiring for this role
-                st.caption("**Top Companies Hiring:**")
-                top_companies = df_job['company_name'].value_counts().head(5)
-                for company, count in top_companies.items():
-                    st.write(f"• {company}: {count} jobs")
+            st.info("No data available.")
     
     # ---------------- FOOTER ----------------
     st.divider()
