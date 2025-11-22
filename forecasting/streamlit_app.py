@@ -2,7 +2,8 @@ import os
 import pandas as pd
 import streamlit as st
 from datetime import datetime, timedelta, timezone
-from cassandra_client import get_session, validate_keyspace
+from cassandra_client import validate_keyspace
+from data_utils import fetch_recent, fetch_all, get_total_count
 from streamlit_autorefresh import st_autorefresh
 from footer_utils import add_footer
 import importlib
@@ -134,55 +135,6 @@ def run_phase3():
         )
         return s
 
-    # ---------------- FETCH RECENT ----------------
-    @st.cache_data(ttl=3)
-    def fetch_recent(minutes=60):
-        session = get_session()
-        now = datetime.now(timezone.utc)
-        start = now - timedelta(minutes=minutes)
-
-        query = f"""
-        SELECT id, title, company_name, location, country, skill,
-               created_at, ingested_at
-        FROM {TABLE}
-        WHERE ingested_at >= %s AND ingested_at < %s ALLOW FILTERING;
-        """
-
-        rows = session.execute(query, (start, now))
-        df = pd.DataFrame(list(rows))
-
-        if df.empty:
-            return df
-
-        df["ts"] = pd.to_datetime(df["ingested_at"], errors="coerce")
-
-        for c in ["company_name", "title", "location", "country", "skill"]:
-            df[c] = df[c].fillna("").astype(str)
-
-        return df.sort_values("ts")
-
-    # ---------------- FETCH ALL ----------------
-    @st.cache_data(ttl=30)
-    def fetch_all():
-        session = get_session()
-        query = f"""
-        SELECT id, title, company_name, location, country, skill,
-               created_at, ingested_at
-        FROM {TABLE};
-        """
-        rows = session.execute(query)
-        df = pd.DataFrame(list(rows))
-
-        if df.empty:
-            return df
-
-        df["ts"] = pd.to_datetime(df["ingested_at"], errors="coerce")
-
-        for c in ["company_name", "title", "location", "country", "skill"]:
-            df[c] = df[c].fillna("").astype(str)
-
-        return df.sort_values("ts")
-
     # ---------------- MODE SELECTOR ----------------
     st.subheader("View Mode")
 
@@ -249,13 +201,6 @@ def run_phase3():
         st.info("Waiting for live data…")
 
     # ---------------- COUNT HISTORY ----------------
-    @st.cache_data(ttl=2)
-    def get_total_count():
-        session = get_session()
-        result = session.execute(f"SELECT COUNT(*) AS count FROM {TABLE};")
-        row = result.one()
-        return row["count"] if row else 0
-
     if "count_history" not in st.session_state:
         st.session_state.count_history = []
 
