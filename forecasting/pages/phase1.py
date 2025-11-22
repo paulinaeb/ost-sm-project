@@ -72,11 +72,19 @@ def run():
         return df
     
     def aggregate_by_country(df):
-        """Count jobs per country"""
+        """Count jobs per country and get most common job"""
         if df.empty:
-            return pd.DataFrame(columns=['country_iso', 'job_count', 'country_name'])
+            return pd.DataFrame(columns=['country_iso', 'job_count', 'country_name', 'top_job'])
         
+        # Count jobs per country
         country_counts = df.groupby('country_iso').size().reset_index(name='job_count')
+        
+        # Get most common job per country
+        top_jobs = df.groupby('country_iso')['title'].agg(lambda x: x.mode()[0] if len(x.mode()) > 0 else 'N/A').reset_index()
+        top_jobs.columns = ['country_iso', 'top_job']
+        
+        # Merge
+        country_counts = country_counts.merge(top_jobs, on='country_iso')
         country_counts['country_name'] = country_counts['country_iso'].map(
             lambda x: ISO_TO_NAME.get(x, x)
         )
@@ -98,10 +106,17 @@ def run():
             locations='country_iso',
             color='job_count',
             hover_name='country_name',
-            hover_data={'country_iso': False, 'job_count': True},
+            hover_data={
+                'country_iso': False, 
+                'job_count': True,
+                'top_job': True
+            },
             color_continuous_scale='Viridis',
             title=title,
-            labels={'job_count': 'Number of Jobs'}
+            labels={
+                'job_count': 'Number of Jobs',
+                'top_job': 'Most Common Job'
+            }
         )
         
         # Focus on Europe (zoom to EU zone)
