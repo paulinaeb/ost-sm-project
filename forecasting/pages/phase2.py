@@ -33,38 +33,116 @@ def preprocess_data(raw_data):
 #     # Filter only European countries
 #     df = df[df['country_iso'].isin(EUROPEAN_COUNTRIES)].copy()
 #     return df
-def train_weekly_country_model(data):
-    """
-    Train a prediction model for weekly per-country analytics.
-    :param data: DataFrame containing the data.
-    """
-    # Ensure the 'date' column is in datetime format
-    #data['date'] = pd.to_datetime(data['date'])
+# def train_weekly_country_model(data):
+#     """
+#     Train a prediction model for weekly per-country analytics.
+#     :param data: DataFrame containing the data.
+#     """
+#     # Ensure the 'date' column is in datetime format
+#     #data['date'] = pd.to_datetime(data['date'])
 
-    # Ensure the 'created_at' column is in datetime format
-    data['week'] = data['created_at'].dt.to_period('W').apply(lambda r: r.start_time)
-    # Aggregate data by week and country, summing only numeric columns
-    weekly_data = data.groupby(['week', 'country'], as_index=False).agg({'metric': 'sum'})
-    st.write(weekly_data.head())
-    # Convert 'week' to string for compatibility with pd.get_dummies()
-    weekly_data['week'] = weekly_data['week'].astype(str)
-    st.write(weekly_data.head())
-    # Train a simple model (e.g., Linear Regression)
-    model = LinearRegression()
-    X = pd.get_dummies(weekly_data[['week', 'country']], drop_first=True)
-    y = weekly_data['metric']  # Replace 'metric' with the target column in your data
-    model.fit(X, y)
-    return model
+#     # Ensure the 'created_at' column is in datetime format
+#     data['week'] = data['created_at'].dt.to_period('W').apply(lambda r: r.start_time)
+#     # Aggregate data by week and country, summing only numeric columns
+#     weekly_data = data.groupby(['week', 'country'], as_index=False).agg({'metric': 'sum'})
+#     st.write(weekly_data.head())
+#     # Convert 'week' to string for compatibility with pd.get_dummies()
+#     weekly_data['week'] = weekly_data['week'].astype(str)
+#     st.write(weekly_data.head())
+#     # Train a simple model (e.g., Linear Regression)
+#     model = LinearRegression()
+#     X = pd.get_dummies(weekly_data[['week', 'country']], drop_first=True)
+#     y = weekly_data['metric']  # Replace 'metric' with the target column in your data
+#     model.fit(X, y)
+#     return model
+def generate_predictions(df, weeks_to_predict=12):
+    """
+    Trains a model per country and generates future predictions.
+    """
+    df = df.copy()
+    
+    # 1. Convert 'week' to a numerical value (Time Delta) for Linear Regression
+    # We use "days since the first date" so the math is continuous
+    min_date = df['week'].min()
+    df['time_index'] = (df['week'] - min_date).dt.days
+    
+    future_preds = []
 
+    # 2. Train a separate simple model for each country
+    # (This is often more accurate than one giant model for simple trends)
+    for country in df['country'].unique():
+        country_data = df[df['country'] == country]
+        
+        if len(country_data) < 2:
+            continue # Not enough data to predict
+            
+        model = LinearRegression()
+        X = country_data[['time_index']]
+        y = country_data['metric']
+        
+        model.fit(X, y)
+        
+        # 3. Create Future Time Index
+        last_day = country_data['time_index'].max()
+        # Create input for the next N weeks (7 days * N weeks)
+        future_days = np.array([last_day + (i * 7) for i in range(1, weeks_to_predict + 1)]).reshape(-1, 1)
+        
+        # 4. Predict
+        predictions = model.predict(future_days)
+        
+        # 5. Construct the prediction DataFrame
+        future_dates = [country_data['week'].max() + pd.Timedelta(weeks=i) for i in range(1, weeks_to_predict + 1)]
+        
+        temp_df = pd.DataFrame({
+            'week': future_dates,
+            'metric': predictions,
+            'country': country,
+            'type': 'Predicted' # Mark these as predictions
+        })
+        # Ensure no negative predictions (impossible to have negative jobs)
+        temp_df['metric'] = temp_df['metric'].clip(lower=0)
+        
+        future_preds.append(temp_df)
+
+    # 6. Combine History (Actual) and Future (Predicted)
+    df['type'] = 'Actual'
+    if future_preds:
+        return pd.concat([df[['week', 'metric', 'country', 'type']], pd.concat(future_preds)])
+    return df
+
+# def visualize_weekly_data(data):
+#     """
+#     Visualize weekly job postings by country.
+#     :param data: Aggregated DataFrame with weekly job postings.
+#     """
+#     # 1. Ensure 'week' is actual datetime objects (Crucial for the x-axis to look good)
+#     data['week'] = pd.to_datetime(data['week'])
+
+#     # Calculate the total jobs per week across all countries
+#     weekly_totals = data.groupby('week')['metric'].sum().reset_index()
+    
+#     # Find the first week where we have significant data (e.g., > 10 jobs total)
+#     # This automatically finds where the "spike" starts
+#     active_weeks = weekly_totals[weekly_totals['metric'] > 100]['week']
+    
+#     if not active_weeks.empty:
+#         start_date = active_weeks.min()
+#         # Filter the main dataframe to only show data after that start date
+#         data = data[data['week'] >= start_date]
+
+#     fig = px.area(
+#         data,
+#         x="week",
+#         y="metric",
+#         color="country",
+#         title="Weekly Job Postings by Country",
+#         labels={"week": "Week", "metric": "Job Postings", "country": "Country"},
+#     )
+#     st.plotly_chart(fig, use_container_width=True)
 def visualize_weekly_data(data):
-    """
-    Visualize weekly job postings by country.
-    :param data: Aggregated DataFrame with weekly job postings.
-    """
-    # 1. Ensure 'week' is actual datetime objects (Crucial for the x-axis to look good)
-    data['week'] = pd.to_datetime(data['week'])
-
-    # Calculate the total jobs per week across all countries
+    # Sort by date so lines connect properly
+    data = data.sort_values('week')
+    #Calculate the total jobs per week across all countries
     weekly_totals = data.groupby('week')['metric'].sum().reset_index()
     
     # Find the first week where we have significant data (e.g., > 10 jobs total)
@@ -75,17 +153,31 @@ def visualize_weekly_data(data):
         start_date = active_weeks.min()
         # Filter the main dataframe to only show data after that start date
         data = data[data['week'] >= start_date]
-
-    fig = px.area(
+    # Create the plot
+    fig = px.line( # Switched to Line chart for cleaner comparison of trends
         data,
         x="week",
         y="metric",
         color="country",
-        title="Weekly Job Postings by Country",
-        labels={"week": "Week", "metric": "Job Postings", "country": "Country"},
+        line_dash="type", # <--- This makes 'Predicted' lines dotted!
+        title="<b>Projected Job Growth (Next 12 Weeks)</b>",
+        labels={"week": "Week", "metric": "Job Postings", "type": "Data Type"},
+        template="plotly_dark",
+        color_discrete_sequence=px.colors.qualitative.Pastel
     )
-    st.plotly_chart(fig, use_container_width=True)
 
+    fig.update_layout(
+        xaxis=dict(showgrid=False),
+        yaxis=dict(showgrid=True, gridcolor='#333'),
+        legend=dict(
+            orientation="h",
+            yanchor="bottom", y=1.02,
+            xanchor="right", x=1
+        ),
+        hovermode="x unified"
+    )
+    
+    st.plotly_chart(fig, use_container_width=True)
 def run():
     st.title("📈 Predictive Insights")
 
@@ -136,9 +228,9 @@ def run():
         #     st.stop()
         
         # ---------------- TRAIN MODEL ----------------
-        st.write("Training the weekly per-country analytics model...")
-        model = train_weekly_country_model(df)
-        st.success("Model training complete!")
+        # st.write("Training the weekly per-country analytics model...")
+        # model = train_weekly_country_model(df)
+        # st.success("Model training complete!")
         #st.success(f"✅ Loaded {len(df)} jobs from {df['country_iso'].nunique()} European countries")
         
         # ---------------- VISUALIZE DATA ----------------
@@ -170,15 +262,19 @@ def run():
                     options=all_countries,
                     default=top_countries
                 )
-                
+
         # 4. Filter the data based on selection
         if not selected_countries:
             st.warning("⚠️ Please select at least one country to view the plot.")
         else:
             filtered_data = weekly_data[weekly_data['country'].isin(selected_countries)]
+            # 2. Generate Predictions on the filtered data
+            # (We do this BEFORE plotting)
+            st.write("🔮 Generating 12-week forecast...")
+            combined_data = generate_predictions(filtered_data, weeks_to_predict=12)
             
-        # Pass ONLY the filtered data to your plotting function
-        visualize_weekly_data(filtered_data)
+            # Pass ONLY the filtered data to your plotting function
+            visualize_weekly_data(combined_data)
 
 
     else:  # Real-time Streaming Mode
