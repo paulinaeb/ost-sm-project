@@ -61,7 +61,22 @@ def visualize_weekly_data(data):
     Visualize weekly job postings by country.
     :param data: Aggregated DataFrame with weekly job postings.
     """
-    fig = px.bar(
+    # 1. Ensure 'week' is actual datetime objects (Crucial for the x-axis to look good)
+    data['week'] = pd.to_datetime(data['week'])
+
+    # Calculate the total jobs per week across all countries
+    weekly_totals = data.groupby('week')['metric'].sum().reset_index()
+    
+    # Find the first week where we have significant data (e.g., > 10 jobs total)
+    # This automatically finds where the "spike" starts
+    active_weeks = weekly_totals[weekly_totals['metric'] > 100]['week']
+    
+    if not active_weeks.empty:
+        start_date = active_weeks.min()
+        # Filter the main dataframe to only show data after that start date
+        data = data[data['week'] >= start_date]
+
+    fig = px.area(
         data,
         x="week",
         y="metric",
@@ -130,7 +145,40 @@ def run():
         st.write("Visualizing weekly job postings...")
         df['week'] = df['created_at'].dt.to_period('W').apply(lambda r: r.start_time)
         weekly_data = df.groupby(['week', 'country'], as_index=False).agg({'metric': 'sum'})
-        visualize_weekly_data(weekly_data)
+
+        # 2. Get list of countries & identify the Top 5 (for default selection)
+        all_countries = sorted(weekly_data['country'].unique())
+        
+        # Calculate top 5 countries by total volume so the chart isn't empty on load
+        top_countries = df.groupby('country')['metric'].sum().nlargest(5).index.tolist()
+
+        col1, col2 = st.columns([3, 1]) # Create columns for better layout
+
+        with col2:
+            # The Checkbox (Placed to the right or top)
+            select_all = st.checkbox("Select All Countries")
+
+        with col1:
+            if select_all:
+                # If checked, we disable the box and select everything
+                selected_countries = all_countries
+                st.info(f"✅ Displaying all {len(all_countries)} countries.")
+            else:
+                # Otherwise, show the picker
+                selected_countries = st.multiselect(
+                    "Select Countries to Compare:",
+                    options=all_countries,
+                    default=top_countries
+                )
+                
+        # 4. Filter the data based on selection
+        if not selected_countries:
+            st.warning("⚠️ Please select at least one country to view the plot.")
+        else:
+            filtered_data = weekly_data[weekly_data['country'].isin(selected_countries)]
+            
+        # Pass ONLY the filtered data to your plotting function
+        visualize_weekly_data(filtered_data)
 
 
     else:  # Real-time Streaming Mode
