@@ -2,6 +2,7 @@ import os
 import pandas as pd
 import numpy as np
 import streamlit as st
+from streamlit_autorefresh import st_autorefresh
 from sklearn.linear_model import LinearRegression
 from footer_utils import add_footer
 from data_utils import fetch_recent, fetch_all
@@ -14,8 +15,8 @@ def preprocess_data(raw_data):
     :return: Processed DataFrame.
     """
     # Convert dates to datetime
-    #raw_data['posting_date'] = pd.to_datetime(raw_data['posting_date'])
-    #raw_data['retrieval_date'] = pd.to_datetime(raw_data['retrieval_date'])
+    raw_data['created_at'] = pd.to_datetime(raw_data['created_at'])
+    raw_data['ingested_at'] = pd.to_datetime(raw_data['ingested_at'])
 
     # Add a 'metric' column (e.g., count of jobs per week)
     raw_data['metric'] = 1  # Each row represents one job posting
@@ -39,10 +40,14 @@ def train_weekly_country_model(data):
     # Ensure the 'date' column is in datetime format
     #data['date'] = pd.to_datetime(data['date'])
 
-    # Aggregate data by week and country
+    # Ensure the 'created_at' column is in datetime format
     data['week'] = data['created_at'].dt.to_period('W').apply(lambda r: r.start_time)
-    weekly_data = data.groupby(['week', 'country']).sum().reset_index()
-
+    # Aggregate data by week and country, summing only numeric columns
+    weekly_data = data.groupby(['week', 'country'], as_index=False).agg({'metric': 'sum'})
+    st.write(weekly_data.head())
+    # Convert 'week' to string for compatibility with pd.get_dummies()
+    weekly_data['week'] = weekly_data['week'].astype(str)
+    st.write(weekly_data.head())
     # Train a simple model (e.g., Linear Regression)
     model = LinearRegression()
     X = pd.get_dummies(weekly_data[['week', 'country']], drop_first=True)
@@ -93,6 +98,7 @@ def run():
          # ---------------- PREPROCESS DATA ----------------
         st.write("Preprocessing data...")
         df = preprocess_data(df_raw)
+        st.write(df.head())
         
         # if df.empty:
         #     st.warning("⚠️ No European country data found in the database.")
