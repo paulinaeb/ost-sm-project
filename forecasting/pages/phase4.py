@@ -1,6 +1,6 @@
 import streamlit as st
 from footer_utils import add_footer
-from data_utils import fetch_recent, fetch_all,fetch_all_roles_by_title
+from data_utils import fetch_recent, fetch_all,fetch_all_roles_by_title,fetch_all_role_with_tks
 from streamlit_autorefresh import st_autorefresh
 from datetime import datetime
 from rapidfuzz import fuzz
@@ -145,6 +145,90 @@ def run():
 
         return fig
 
+    def plot_skill_gap_hybrid(linkedin_jobs_df, ecsf_role_with_tks):
+        jobs = linkedin_jobs_df.copy()
+        jobs['skills_clean'] = jobs['skill'].fillna("").str.lower().str.split(r'[,;•·]')
+        jobs['skills_clean'] = jobs['skills_clean'].apply(lambda x: [s.strip() for s in x if s.strip()])
+
+        # Extract official competences (T+K+S)
+        def get_competences(tks):
+            return [desc.lower().strip() for code, _, desc in tks]
+
+        ecsf = ecsf_role_with_tks.copy()
+        ecsf['competences'] = ecsf['tks'].apply(get_competences)
+
+        # Simple mapping
+        jobs['role'] = jobs['title'].apply(lambda t: next((r['title'] for _, r in ecsf.iterrows() if r['title'].lower() in t.lower() or any(a.lower() in t.lower() for a in r['alt_titles'])), None))
+        matched = jobs.dropna(subset='role')
+
+        results = []
+        for role in ecsf['title']:
+            official = set(ecsf[ecsf['title']==role]['competences'].iloc[0])
+            role_jobs = matched[matched['role']==role]
+            
+            if role_jobs.empty:
+                coverage = 0
+            else:
+                all_skills = [s for sublist in role_jobs['skills_clean'] for s in sublist]
+                all_skills_set = set(s.lower() for sublist in role_jobs['skills_clean'] for s in sublist)
+                covered = sum(1 for comp in official if any(kw in comp for kw in all_skills_set))
+                #covered = sum(1 for comp in official if any(kw in comp and kw in " ".join(all_skills) for kw in ["siem","iso 27001","nist","gdpr","vulnerability","penetration","incident","risk","soc","firewall","encryption","cryptography","forensics","cloud security","aws","azure"]))
+                coverage = covered / len(official)
+            
+            results.append({'Role': role.split(' (')[0], 'Coverage %': coverage})
+
+        df = pd.DataFrame(results).sort_values('Coverage %')
+
+        df = df[df['Coverage %'] > 0.001]
+
+        st.subheader(f"Skill Gap indicator")
+
+        fig = go.Figure(go.Bar(
+            x=df['Role'],
+            y=df['Coverage %'],
+            text=df['Coverage %'].map("{:.0%}".format),   # ← Show % on top
+            textposition="outside",
+            textfont=dict(color="black", size=13, family="Arial"),
+            
+            marker=dict(
+                color=df['Coverage %'],                    # ← This enables gradient
+                colorscale="Blues",                        # ← Your favorite!
+                line=dict(color="darkblue", width=1.2),    # ← Crisp borders
+            ),
+            
+            hovertemplate="<b>%{x}</b><br>Coverage: <b>%{y:.0%}</b><extra></extra>"
+        ))
+
+        fig.update_layout(
+            title='',
+            height=max(600, len(df) * 100),
+            template="plotly_white",
+            plot_bgcolor="white",
+            paper_bgcolor="white",
+            
+            xaxis=dict(
+                tickangle=-45,
+                tickfont=dict(color="black", size=13),
+                titlefont=dict(color="black", size=16),
+                title="<b>ECSF Role</b>"
+            ),
+            yaxis=dict(
+                title="<b>Coverage of Official Competences</b>",
+                tickformat=".0%",
+                range=[0, 1.05],
+                tickfont=dict(color="black", size=14),
+                titlefont=dict(color="black", size=16),
+                gridcolor="#e0e0e0"
+            ),
+            
+            font=dict(family="Arial, sans-serif", color="black"),
+            margin=dict(l=80, r=120, t=80, b=100),
+            title_x=0.5
+        )
+      
+        fig.update_traces(textposition='outside')
+        fig.update_layout(xaxis_tickangle=-45, yaxis_tickformat=".0%")
+        st.plotly_chart(fig, use_container_width=True)
     ## set the mode selection
         # ---------------- MODE SELECTOR ----------------
     st.subheader("📊 View Mode")
@@ -155,32 +239,35 @@ def run():
         horizontal=True
     )
     # ---------------- FETCH DATA BASED ON MODE ----------------
+    ecsf_roles_by_title_df = fetch_all_roles_by_title()
+    ecsf_role_with_tks_df = fetch_all_role_with_tks()
     if mode == "📁 View Existing Database":
         linkedin_jobs_df = fetch_all()
-        ecsf_roles_by_title_df = fetch_all_roles_by_title()
-        #print(df_raw.head())
         
         if linkedin_jobs_df.empty:
             st.warning("⚠️ No data found in the database. Start the producer to ingest data.")
             st.stop()
         
-        if ecsf_roles_by_title_df.empty:
-            st.warning("⚠️ No static data found in the cassandra, Try to contact Samiha!")
+        if ecsf_roles_by_title_df.empty or ecsf_role_with_tks_df.empty:
+            st.warning("⚠️ No static data found in the cassandra, Try to contact Samiha! Oh no contact info :')")
             st.stop()
         
+        # the first visualization
         similarity_df = calculate_titles_similarity(linkedin_jobs_df,ecsf_roles_by_title_df)
 
         plot_top_ecsf_roles(similarity_df)
+
+        st.divider()
         
-        #df = prepare_data(df_raw)
+        # the second visualization
+        plot_skill_gap_hybrid(linkedin_jobs_df,ecsf_role_with_tks_df)
         
-        st.success(f"✅ Loaded {len(linkedin_jobs_df)} jobs")
+        #st.success(f"✅ Loaded {len(linkedin_jobs_df)} jobs")
         
     else:  # Real-time Streaming Mode
         st_autorefresh(interval=3000, key="matching_tracker_refresh")
 
         linkedin_jobs_df = fetch_recent(LOOKBACK_MINUTES)
-        ecsf_roles_by_title_df = fetch_all_roles_by_title()
 
         st.success(f"🔴 LIVE: {len(linkedin_jobs_df)} jobs")
         st.caption(f"Last refresh: {datetime.now().strftime('%H:%M:%S')}")
@@ -189,12 +276,21 @@ def run():
             st.warning("⚠️ No data found in the database. Start the producer to ingest data.")
             st.stop()
         
-        if ecsf_roles_by_title_df.empty:
-            st.warning("⚠️ No static data found in the cassandra, Try to contact Samiha!")
+        if ecsf_roles_by_title_df.empty or ecsf_role_with_tks_df.empty:
+            st.warning("⚠️ No static data found in the cassandra, Try to contact Samiha! Oh no contact info :')")
             st.stop()
 
         similarity_df = calculate_titles_similarity(linkedin_jobs_df,ecsf_roles_by_title_df)
 
         plot_top_ecsf_roles(similarity_df)
+
+        st.divider()
+
+        # the second visualization
+        plot_skill_gap_hybrid(linkedin_jobs_df,ecsf_role_with_tks_df)
                 
     st.divider()
+
+# how to commit and push
+# git commit -m "add to matching tracker : first visualization" forecasting/pages/phase4.py
+# git push origin phase1
