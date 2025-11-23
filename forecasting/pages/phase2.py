@@ -1,6 +1,7 @@
 import os
 import pandas as pd
 import numpy as np
+import plotly.express as px
 import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 from sklearn.linear_model import LinearRegression
@@ -54,6 +55,21 @@ def train_weekly_country_model(data):
     y = weekly_data['metric']  # Replace 'metric' with the target column in your data
     model.fit(X, y)
     return model
+
+def visualize_weekly_data(data):
+    """
+    Visualize weekly job postings by country.
+    :param data: Aggregated DataFrame with weekly job postings.
+    """
+    fig = px.bar(
+        data,
+        x="week",
+        y="metric",
+        color="country",
+        title="Weekly Job Postings by Country",
+        labels={"week": "Week", "metric": "Job Postings", "country": "Country"},
+    )
+    st.plotly_chart(fig, use_container_width=True)
 
 def run():
     st.title("📈 Predictive Insights")
@@ -110,6 +126,13 @@ def run():
         st.success("Model training complete!")
         #st.success(f"✅ Loaded {len(df)} jobs from {df['country_iso'].nunique()} European countries")
         
+        # ---------------- VISUALIZE DATA ----------------
+        st.write("Visualizing weekly job postings...")
+        df['week'] = df['created_at'].dt.to_period('W').apply(lambda r: r.start_time)
+        weekly_data = df.groupby(['week', 'country'], as_index=False).agg({'metric': 'sum'})
+        visualize_weekly_data(weekly_data)
+
+
     else:  # Real-time Streaming Mode
         st_autorefresh(interval=3000, key="country_radar_refresh")
         
