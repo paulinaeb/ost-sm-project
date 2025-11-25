@@ -567,10 +567,10 @@ def run():
         # Preprocessing for Stream
         df = df_raw.copy()
         #dfog['created_at'] = pd.to_datetime(dfog['created_at'])
-        #df = preprocess_data(df)
-        # dfog['week'] = dfog['created_at'].dt.to_period('W').apply(lambda r: r.start_time)
-        #!!!weekly_data = df.groupby(['week', 'country'], as_index=False).agg({'metric': 'sum'})
-        weekly_data = df.groupby(['week', 'country'], as_index=False).size().rename(columns={'size': 'metric'})
+        df = preprocess_data(df)
+        df['week'] = df['created_at'].dt.to_period('W').apply(lambda r: r.start_time)
+        weekly_data = df.groupby(['week', 'country'], as_index=False).agg({'metric': 'sum'})
+        #weekly_data = df.groupby(['week', 'country'], as_index=False).size().rename(columns={'size': 'metric'})
 
         # 2. Get list of countries & identify the Top 5 (for default selection)
         all_countries = sorted(weekly_data['country'].unique())
@@ -578,11 +578,11 @@ def run():
         # Calculate top 5 countries by total volume so the chart isn't empty on load
         top_countries = df.groupby('country')['metric'].sum().nlargest(5).index.tolist()
         # Ensure variable is defined before use to avoid UnboundLocalError
-        top_countries_series = df.groupby('country').size()
-        top_countries = top_countries_series.nlargest(5).index.tolist()
+        #top_countries_series = df.groupby('country').size()
+        #top_countries = top_countries_series.nlargest(5).index.tolist()
 
         # # Initialize with a safe default to avoid unbound local variable
-        selected_countries = top_countries
+        #selected_countries = top_countries
 
         col1, col2 = st.columns([3, 1]) # Create columns for better layout
 
@@ -607,24 +607,24 @@ def run():
         if not selected_countries:
             st.warning("⚠️ Please select at least one country to view the plot.")
         else:
-            #filtered_data = weekly_data[weekly_data['country'].isin(selected_countries)]
+            filtered_data = weekly_data[weekly_data['country'].isin(selected_countries)]
             # Filter
             #filtered_df = dfog[df['country'].isin(selected_countries)]
             
             # KPI Header
-            k1, k2, k3 = st.columns(3)
-            k1.metric("Live Jobs (1h)", len(df_raw))
-            k2.metric("Active Countries", len(all_countries))
-            k3.caption(f"Last Update: {datetime.now().strftime('%H:%M:%S')}")
-            # Visualize Flow
-            visualize_streaming_data(df)
+            # k1, k2, k3 = st.columns(3)
+            # k1.metric("Live Jobs (1h)", len(df_raw))
+            # k2.metric("Active Countries", len(all_countries))
+            # k3.caption(f"Last Update: {datetime.now().strftime('%H:%M:%S')}")
+            # # Visualize Flow
+            # visualize_streaming_data(df)
             
-            with st.expander("Raw Stream Data"):
-                st.dataframe(df_filtered.sort_values('created_at', ascending=False).head(20))
+            # with st.expander("Raw Stream Data"):
+            #     st.dataframe(df_filtered.sort_values('created_at', ascending=False).head(20))
         st.success(f"🔴 LIVE: {len(df_raw)} jobs")
         st.caption(f"Last refresh: {datetime.now().strftime('%H:%M:%S')}")
     
-        visualize_weekly_data(df)
+        visualize_weekly_data(filtered_data)
     st.divider()
 
     add_footer("Tibor Buti")
