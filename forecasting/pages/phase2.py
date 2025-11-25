@@ -24,20 +24,20 @@ DATA_START_THRESHOLD = 10    # Minimum jobs per week to consider the time series
 # Streaming Config
 LOOKBACK_MINUTES = 60        # How far back to look for the "Live" stream
 
-# def preprocess_data(raw_data):
-#     """
-#     Preprocess raw data to prepare it for training.
-#     :param raw_data: DataFrame containing raw data from Cassandra.
-#     :return: Processed DataFrame.
-#     """
-#     # Convert dates to datetime
-#     raw_data['created_at'] = pd.to_datetime(raw_data['created_at'])
-#     raw_data['ingested_at'] = pd.to_datetime(raw_data['ingested_at'])
+def preprocess_data(raw_data):
+    """
+    Preprocess raw data to prepare it for training.
+    :param raw_data: DataFrame containing raw data from Cassandra.
+    :return: Processed DataFrame.
+    """
+    # Convert dates to datetime
+    raw_data['created_at'] = pd.to_datetime(raw_data['created_at'])
+    raw_data['ingested_at'] = pd.to_datetime(raw_data['ingested_at'])
 
-#     # Add a 'metric' column (e.g., count of jobs per week)
-#     raw_data['metric'] = 1  # Each row represents one job posting
+    # Add a 'metric' column (e.g., count of jobs per week)
+    raw_data['metric'] = 1  # Each row represents one job posting
 
-#     return raw_data
+    return raw_data
 
 # --- PREPROCESSING & ML FUNCTIONS (BATCH LAYER) ---
 def preprocess_weekly_data(df):
@@ -326,35 +326,35 @@ def visualize_streaming_data(df):
 #         return pd.concat([df[['week', 'metric', 'country', 'type']], pd.concat(future_preds)])
 #     return df
 
-# def visualize_weekly_data(data):
-#     """
-#     Visualize weekly job postings by country.
-#     :param data: Aggregated DataFrame with weekly job postings.
-#     """
-#     # 1. Ensure 'week' is actual datetime objects (Crucial for the x-axis to look good)
-#     data['week'] = pd.to_datetime(data['week'])
+def visualize_weekly_data(data):
+    """
+    Visualize weekly job postings by country.
+    :param data: Aggregated DataFrame with weekly job postings.
+    """
+    # 1. Ensure 'week' is actual datetime objects (Crucial for the x-axis to look good)
+    data['week'] = pd.to_datetime(data['week'])
 
-#     # Calculate the total jobs per week across all countries
-#     weekly_totals = data.groupby('week')['metric'].sum().reset_index()
+    # Calculate the total jobs per week across all countries
+    weekly_totals = data.groupby('week')['metric'].sum().reset_index()
     
-#     # Find the first week where we have significant data (e.g., > 10 jobs total)
-#     # This automatically finds where the "spike" starts
-#     active_weeks = weekly_totals[weekly_totals['metric'] > 100]['week']
+    # Find the first week where we have significant data (e.g., > 10 jobs total)
+    # This automatically finds where the "spike" starts
+    active_weeks = weekly_totals[weekly_totals['metric'] > 100]['week']
     
-#     if not active_weeks.empty:
-#         start_date = active_weeks.min()
-#         # Filter the main dataframe to only show data after that start date
-#         data = data[data['week'] >= start_date]
+    if not active_weeks.empty:
+        start_date = active_weeks.min()
+        # Filter the main dataframe to only show data after that start date
+        data = data[data['week'] >= start_date]
 
-#     fig = px.area(
-#         data,
-#         x="week",
-#         y="metric",
-#         color="country",
-#         title="Weekly Job Postings by Country",
-#         labels={"week": "Week", "metric": "Job Postings", "country": "Country"},
-#     )
-#     st.plotly_chart(fig, use_container_width=True)
+    fig = px.area(
+        data,
+        x="week",
+        y="metric",
+        color="country",
+        title="Weekly Job Postings by Country",
+        labels={"week": "Week", "metric": "Job Postings", "country": "Country"},
+    )
+    st.plotly_chart(fig, use_container_width=True)
     
 def run():
     st.title("📈 Predictive Insights")
@@ -408,7 +408,7 @@ def run():
         
          # ---------------- PREPROCESS DATA ----------------
         st.write("Preprocessing data...")
-        #df = preprocess_data(df_raw)
+        df = preprocess_data(df_raw)
         
         
         # 4. Preprocessing
@@ -420,86 +420,86 @@ def run():
         
         # ---------------- VISUALIZE DATA ----------------
         #!!! st.write("Visualizing weekly job postings...")
-        # df['week'] = df['created_at'].dt.to_period('W').apply(lambda r: r.start_time)
-        # weekly_data = df.groupby(['week', 'country'], as_index=False).agg({'metric': 'sum'})
+        df['week'] = df['created_at'].dt.to_period('W').apply(lambda r: r.start_time)
+        weekly_data = df.groupby(['week', 'country'], as_index=False).agg({'metric': 'sum'})
 
         # 5. UI Controls
         all_countries = sorted(df_weekly['country'].unique())
         # Default to top 3 countries by volume
         top_countries = df_weekly.groupby('country')['job_count'].sum().nlargest(3).index.tolist()
 
-        
+        # # Initialize with a safe default to avoid unbound local variable
+        #selected_countries = top_countries
 
         col1, col2 = st.columns([3, 1]) # Create columns for better layout
-        with col1:
-            selected_countries = st.multiselect(
-                "Select Countries to Analyze:",
-                options=all_countries,
-                default=top_countries
-            )
-        with col2:
-            st.metric("Total Jobs Analyzed", len(df_raw))
-            
-        if not selected_countries:
-            st.info("Please select a country to generate predictions.")
-            st.stop()
-        
-        # with col2:
-        #     # The Checkbox (Placed to the right or top)
-        #     select_all = st.checkbox("Select All Countries")
-
         # with col1:
-        #     if select_all:
-        #         # If checked, we disable the box and select everything
-        #         selected_countries = all_countries
-        #         st.info(f"✅ Displaying all {len(all_countries)} countries.")
-        #     else:
-        #         # Otherwise, show the picker
-        #         selected_countries = st.multiselect(
-        #             "Select Countries to Compare:",
-        #             options=all_countries,
-        #             default=top_countries
-        #         )
+        #     selected_countries = st.multiselect(
+        #         "Select Countries to Analyze:",
+        #         options=all_countries,
+        #         default=top_countries,
+        #         key="hist_country_select"  # <--- Added this unique key
+        #     )
+        # with col2:
+        #     st.metric("Total Jobs Analyzed", len(df_raw))
 
-        # 4. Filter the data based on selection
         # if not selected_countries:
-        #     st.warning("⚠️ Please select at least one country to view the plot.")
-        # else:
-        #     filtered_data = weekly_data[weekly_data['country'].isin(selected_countries)]
+        #     st.info("Please select a country to generate predictions.")
+        #     st.stop()
+        
+        with col2:
+            # The Checkbox (Placed to the right or top)
+            select_all = st.checkbox("Select All Countries")
+
+        with col1:
+            if select_all:
+                # If checked, we disable the box and select everything
+                selected_countries = all_countries
+                st.info(f"✅ Displaying all {len(all_countries)} countries.")
+            else:
+                # Otherwise, show the picker
+                selected_countries = st.multiselect(
+                    "Select Countries to Compare:",
+                    options=all_countries,
+                    default=top_countries
+                )
+
+        #4. Filter the data based on selection
+        if not selected_countries:
+            st.warning("⚠️ Please select at least one country to view the plot.")
+        else:
+            filtered_data = weekly_data[weekly_data['country'].isin(selected_countries)]
             
-        #     # Pass ONLY the filtered data to your plotting function
-        #     visualize_weekly_data(filtered_data)
+            # Pass ONLY the filtered data to your plotting function
+            visualize_weekly_data(filtered_data)
 
         # 6. Analysis Loop
-    for country in selected_countries:
-        st.markdown(f"### 🏳️ {country}")
-        
-        # Filter Data
-        country_df = df_weekly[df_weekly['country'] == country].sort_values('week')
-        
+        for country in selected_countries:
+            st.markdown(f"### 🏳️ {country}") 
+            # Filter Data
+            country_df = df_weekly[df_weekly['country'] == country].sort_values('week')
 
-        # Need enough data for lags (4) + test (4) + val (4) + train (at least 4) = 16 weeks
-        # We relax this slightly for demo purposes, but warn the user.
-        MIN_WEEKS_REQUIRED = 12 
+            # Need enough data for lags (4) + test (4) + val (4) + train (at least 4) = 16 weeks
+            # We relax this slightly for demo purposes, but warn the user.
+            MIN_WEEKS_REQUIRED = 12 
         
-        if len(country_df) < MIN_WEEKS_REQUIRED:
-            st.warning(f"Not enough historical data for **{country}** to train a reliable AI model (Need {MIN_WEEKS_REQUIRED}+ weeks, found {len(country_df)}). Showing raw trend only.")
-            st.line_chart(country_df.set_index('week')['job_count'])
-            continue
+            if len(country_df) < MIN_WEEKS_REQUIRED:
+                st.warning(f"Not enough historical data for **{country}** to train a reliable AI model (Need {MIN_WEEKS_REQUIRED}+ weeks, found {len(country_df)}). Showing raw trend only.")
+                st.line_chart(country_df.set_index('week')['job_count'])
+                continue
 
-        # Feature Engineering
-        df_features = create_lag_features(country_df, LAG_FEATURES)
+            # Feature Engineering
+            df_features = create_lag_features(country_df, LAG_FEATURES)
         
-        # Split
-        train, val, test = split_data_time_series(df_features)
-        if train.empty:
-             st.error("Insufficient data for training split.")
-             continue
-        # Train
-        model = train_model(train)
+            # Split
+            train, val, test = split_data_time_series(df_features)
+            if train.empty:
+                st.error("Insufficient data for training split.")
+                continue
+            # Train
+            model = train_model(train)
         
-        # Evaluate
-        rmse, mae, test_preds = evaluate_model(model, test)
+            # Evaluate
+            rmse, mae, test_preds = evaluate_model(model, test)
         
         # # Future Forecast
         # # Get the very last window of known data (from test set)
@@ -519,34 +519,36 @@ def run():
         # with st.expander(f"View Detailed Data for {country}"):
         #     st.dataframe(country_df.tail(10))
 
-        # Future Forecast
-        # Get the very last window of known data (from test set or validation set)
-        last_known_data = pd.concat([train, val, test]).iloc[-1]
-        last_window = last_known_data[[f'lag_{l}' for l in LAG_FEATURES]].values
+            # Future Forecast
+            # Get the very last window of known data (from test set or validation set)
+            last_known_data = pd.concat([train, val, test]).iloc[-1]
+            last_window = last_known_data[[f'lag_{l}' for l in LAG_FEATURES]].values
         
-        future_preds = recursive_forecast(model, last_window, FORECAST_HORIZON)
+            future_preds = recursive_forecast(model, last_window, FORECAST_HORIZON)
         
-        # Metrics Display
-        m1, m2, m3 = st.columns(3)
-        m1.metric("Model RMSE (Accuracy)", f"{rmse:.2f}", help="Root Mean Squared Error. Lower is better.")
+            # Metrics Display
+            m1, m2, m3 = st.columns(3)
+            m1.metric("Model RMSE (Accuracy)", f"{rmse:.2f}", help="Root Mean Squared Error. Lower is better.")
         
-        next_week_pred = int(future_preds[0])
-        current_val = int(country_df.iloc[-1]['job_count'])
-        delta = next_week_pred - current_val
+            next_week_pred = int(future_preds[0])
+            current_val = int(country_df.iloc[-1]['job_count'])
+            delta = next_week_pred - current_val
         
-        m2.metric("Next Week Prediction", f"{next_week_pred}", delta=delta)
+            m2.metric("Next Week Prediction", f"{next_week_pred}", delta=delta)
         
-        trend = "📈 Growth" if future_preds[-1] > future_preds[0] else "📉 Decline"
-        m3.metric("12-Week Forecast Trend", trend)
+            trend = "📈 Growth" if future_preds[-1] > future_preds[0] else "📉 Decline"
+            m3.metric("12-Week Forecast Trend", trend)
         
-        # Visualize
-        fig = visualize_results(country, train, val, test, test_preds, future_preds, rmse)
-        st.plotly_chart(fig, use_container_width=True)
+            # Visualize
+            fig = visualize_results(country, train, val, test, test_preds, future_preds, rmse)
+            st.plotly_chart(fig, use_container_width=True)
         
-        with st.expander(f"View Training Data for {country}"):
-            st.dataframe(country_df.tail(10))
+            with st.expander(f"View Training Data for {country}"):
+                st.dataframe(country_df.tail(10))
 
-
+    # ---------------------------
+    # MODE 2: REAL-TIME MONITOR
+    # ---------------------------
     else:  # Real-time Streaming Mode
         st_autorefresh(interval=3000, key="predictive_insights_refresh")
         
@@ -557,20 +559,30 @@ def run():
             st.info("Waiting for streaming data...")
             st.stop()
         
-        #df = preprocess_data(df_raw)
+        #dfog = preprocess_data(df_raw)
         
-        if df.empty:
-            st.warning("⚠️ No European country data in recent stream.")
-            st.stop()
-
-        df['week'] = df['created_at'].dt.to_period('W').apply(lambda r: r.start_time)
-        weekly_data = df.groupby(['week', 'country'], as_index=False).agg({'metric': 'sum'})
+        # if df.empty:
+        #     st.warning("⚠️ No European country data in recent stream.")
+        #     st.stop()
+        # Preprocessing for Stream
+        df = df_raw.copy()
+        #dfog['created_at'] = pd.to_datetime(dfog['created_at'])
+        #df = preprocess_data(df)
+        # dfog['week'] = dfog['created_at'].dt.to_period('W').apply(lambda r: r.start_time)
+        #!!!weekly_data = df.groupby(['week', 'country'], as_index=False).agg({'metric': 'sum'})
+        weekly_data = df.groupby(['week', 'country'], as_index=False).size().rename(columns={'size': 'metric'})
 
         # 2. Get list of countries & identify the Top 5 (for default selection)
         all_countries = sorted(weekly_data['country'].unique())
         
         # Calculate top 5 countries by total volume so the chart isn't empty on load
         top_countries = df.groupby('country')['metric'].sum().nlargest(5).index.tolist()
+        # Ensure variable is defined before use to avoid UnboundLocalError
+        top_countries_series = df.groupby('country').size()
+        top_countries = top_countries_series.nlargest(5).index.tolist()
+
+        # # Initialize with a safe default to avoid unbound local variable
+        selected_countries = top_countries
 
         col1, col2 = st.columns([3, 1]) # Create columns for better layout
 
@@ -595,11 +607,23 @@ def run():
         if not selected_countries:
             st.warning("⚠️ Please select at least one country to view the plot.")
         else:
-            filtered_data = weekly_data[weekly_data['country'].isin(selected_countries)]
-        
+            #filtered_data = weekly_data[weekly_data['country'].isin(selected_countries)]
+            # Filter
+            #filtered_df = dfog[df['country'].isin(selected_countries)]
+            
+            # KPI Header
+            k1, k2, k3 = st.columns(3)
+            k1.metric("Live Jobs (1h)", len(df_raw))
+            k2.metric("Active Countries", len(all_countries))
+            k3.caption(f"Last Update: {datetime.now().strftime('%H:%M:%S')}")
+            # Visualize Flow
+            visualize_streaming_data(df)
+            
+            with st.expander("Raw Stream Data"):
+                st.dataframe(df_filtered.sort_values('created_at', ascending=False).head(20))
         st.success(f"🔴 LIVE: {len(df_raw)} jobs")
         st.caption(f"Last refresh: {datetime.now().strftime('%H:%M:%S')}")
-
+    
         visualize_weekly_data(df)
     st.divider()
 
