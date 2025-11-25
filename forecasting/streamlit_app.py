@@ -124,6 +124,32 @@ with st.expander("📄 TKS → Role Mapping (roles_by_tks)"):
 with st.expander("📄 Role With TKS (role_with_tks)"):
     st.dataframe(df_role_with_tks)
 
+
+# ============================================
+# 📊 TOP 10 ECSF ROLES BY NUMBER OF TKS
+# ============================================
+
+st.divider()
+st.header("📊 Top 10 ECSF Job Roles by Number of TKS")
+
+# df_role_with_tks contains: work_role_id, title, tks (list of tuples)
+if "tks" in df_role_with_tks.columns:
+    # Compute TKS count
+    df_role_with_tks["tks_count"] = df_role_with_tks["tks"].apply(lambda x: len(x) if isinstance(x, list) else 0)
+
+    # Sort and take top 10
+    df_top10 = df_role_with_tks.sort_values("tks_count", ascending=False).head(10)
+
+    # Plot bar chart
+    st.bar_chart(
+        df_top10.set_index("title")["tks_count"],
+        use_container_width=True
+    )
+else:
+    st.warning("TKS data not available in role_with_tks table.")
+
+
+
 # ==============================================================================
 # FUNCTION TO LOAD OTHER PHASES
 # ==============================================================================
