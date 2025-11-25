@@ -77,7 +77,52 @@ st.markdown(
 )
 
 
+# ============================
+# 📘 ECSF DATA SUMMARY SECTION
+# ============================
 
+import pandas as pd
+import streamlit as st
+from cassandra_client import get_session
+
+st.divider()
+st.header("📘 ECSF Framework Data")
+
+try:
+    ecsf_session = get_session()     # your function takes NO args
+    ecsf_session.set_keyspace("ecsf")   # manually switch keyspace
+except Exception as e:
+    st.error("❌ Failed to connect to ECSF keyspace.")
+    st.write(str(e))
+    st.stop()
+
+# Helper to load table into DataFrame
+def load_table(session, table):
+    rows = session.execute(f"SELECT * FROM {table}")
+    return pd.DataFrame(list(rows))
+
+# Load ECSF tables
+df_roles = load_table(ecsf_session, "work_role_by_id")
+df_tks = load_table(ecsf_session, "tks_by_id")
+df_roles_by_title = load_table(ecsf_session, "roles_by_title")
+df_roles_by_tks = load_table(ecsf_session, "roles_by_tks")
+df_role_with_tks = load_table(ecsf_session, "role_with_tks")
+
+# Display them in expanders
+with st.expander("📄 Work Roles (work_role_by_id)"):
+    st.dataframe(df_roles)
+
+with st.expander("📄 TKS Definitions (tks_by_id)"):
+    st.dataframe(df_tks)
+
+with st.expander("📄 Title → Role Mapping (roles_by_title)"):
+    st.dataframe(df_roles_by_title)
+
+with st.expander("📄 TKS → Role Mapping (roles_by_tks)"):
+    st.dataframe(df_roles_by_tks)
+
+with st.expander("📄 Role With TKS (role_with_tks)"):
+    st.dataframe(df_role_with_tks)
 
 # ==============================================================================
 # FUNCTION TO LOAD OTHER PHASES
