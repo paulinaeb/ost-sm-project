@@ -7,6 +7,8 @@ from data_utils import fetch_recent, fetch_all, get_total_count
 from streamlit_autorefresh import st_autorefresh
 from footer_utils import add_footer
 import importlib
+import sys
+
 
 # ==============================================================================
 # SETUP
@@ -80,73 +82,71 @@ st.markdown(
 # ============================
 # 📘 ECSF DATA SUMMARY SECTION
 # ============================
-
-import pandas as pd
-import streamlit as st
 from cassandra_client import get_session
 
-st.divider()
-st.header("📘 ECSF Framework Data")
+if  current_phase == "Dashboard":
+    st.header("📘 ECSF Framework Data")
+    st.divider()
 
-try:
-    ecsf_session = get_session()     # your function takes NO args
-    ecsf_session.set_keyspace("ecsf")   # manually switch keyspace
-except Exception as e:
-    st.error("❌ Failed to connect to ECSF keyspace.")
-    st.write(str(e))
-    st.stop()
+    try:
+        ecsf_session = get_session()     # your function takes NO args
+        ecsf_session.set_keyspace("ecsf")   # manually switch keyspace
+    except Exception as e:
+        st.error("❌ Failed to connect to ECSF keyspace.")
+        st.write(str(e))
+        st.stop()
 
-# Helper to load table into DataFrame
-def load_table(session, table):
-    rows = session.execute(f"SELECT * FROM {table}")
-    return pd.DataFrame(list(rows))
+    # Helper to load table into DataFrame
+    def load_table(session, table):
+        rows = session.execute(f"SELECT * FROM {table}")
+        return pd.DataFrame(list(rows))
 
-# Load ECSF tables
-df_roles = load_table(ecsf_session, "work_role_by_id")
-df_tks = load_table(ecsf_session, "tks_by_id")
-df_roles_by_title = load_table(ecsf_session, "roles_by_title")
-df_roles_by_tks = load_table(ecsf_session, "roles_by_tks")
-df_role_with_tks = load_table(ecsf_session, "role_with_tks")
+    # Load ECSF tables
+    df_roles = load_table(ecsf_session, "work_role_by_id")
+    df_tks = load_table(ecsf_session, "tks_by_id")
+    df_roles_by_title = load_table(ecsf_session, "roles_by_title")
+    df_roles_by_tks = load_table(ecsf_session, "roles_by_tks")
+    df_role_with_tks = load_table(ecsf_session, "role_with_tks")
 
-# Display them in expanders
-with st.expander("📄 Work Roles (work_role_by_id)"):
-    st.dataframe(df_roles)
+    # Display them in expanders
+    with st.expander("📄 Work Roles (work_role_by_id)"):
+        st.dataframe(df_roles)
 
-with st.expander("📄 TKS Definitions (tks_by_id)"):
-    st.dataframe(df_tks)
+    with st.expander("📄 TKS Definitions (tks_by_id)"):
+        st.dataframe(df_tks)
 
-with st.expander("📄 Title → Role Mapping (roles_by_title)"):
-    st.dataframe(df_roles_by_title)
+    with st.expander("📄 Title → Role Mapping (roles_by_title)"):
+        st.dataframe(df_roles_by_title)
 
-with st.expander("📄 TKS → Role Mapping (roles_by_tks)"):
-    st.dataframe(df_roles_by_tks)
+    with st.expander("📄 TKS → Role Mapping (roles_by_tks)"):
+        st.dataframe(df_roles_by_tks)
 
-with st.expander("📄 Role With TKS (role_with_tks)"):
-    st.dataframe(df_role_with_tks)
+    with st.expander("📄 Role With TKS (role_with_tks)"):
+        st.dataframe(df_role_with_tks)
 
 
-# ============================================
-# 📊 TOP 10 ECSF ROLES BY NUMBER OF TKS
-# ============================================
+    # ============================================
+    # 📊 TOP 10 ECSF ROLES BY NUMBER OF TKS
+    # ============================================
 
-st.divider()
-st.header("📊 Top 10 ECSF Job Roles by Number of TKS")
+    st.divider()
+    st.header("📊 Top 10 ECSF Job Roles by Number of TKS")
 
-# df_role_with_tks contains: work_role_id, title, tks (list of tuples)
-if "tks" in df_role_with_tks.columns:
-    # Compute TKS count
-    df_role_with_tks["tks_count"] = df_role_with_tks["tks"].apply(lambda x: len(x) if isinstance(x, list) else 0)
+    # df_role_with_tks contains: work_role_id, title, tks (list of tuples)
+    if "tks" in df_role_with_tks.columns:
+        # Compute TKS count
+        df_role_with_tks["tks_count"] = df_role_with_tks["tks"].apply(lambda x: len(x) if isinstance(x, list) else 0)
 
-    # Sort and take top 10
-    df_top10 = df_role_with_tks.sort_values("tks_count", ascending=False).head(10)
+        # Sort and take top 10
+        df_top10 = df_role_with_tks.sort_values("tks_count", ascending=False).head(10)
 
-    # Plot bar chart
-    st.bar_chart(
-        df_top10.set_index("title")["tks_count"],
-        use_container_width=True
-    )
-else:
-    st.warning("TKS data not available in role_with_tks table.")
+        # Plot bar chart
+        st.bar_chart(
+            df_top10.set_index("title")["tks_count"],
+            use_container_width=True
+        )
+    else:
+        st.warning("TKS data not available in role_with_tks table.")
 
 
 
