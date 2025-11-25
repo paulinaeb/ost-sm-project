@@ -145,29 +145,47 @@ def run():
     df_lines = pd.concat(lines, axis=1).fillna(0)
 
     # ==========================================================================================
-    # ADWIN DRIFT DETECTION
+    # ADWIN DRIFT DETECTION — SAFE + LENGTH-ALIGNED + NO NONE VALUES
     # ==========================================================================================
 
     drift_results = {}
 
     for job in top3_jobs:
         adwin = ADWIN()
+
         cumulative = df_lines[job].cumsum()
 
-        drift_flags = []
-        for value in cumulative:
-            changed = adwin.update(value)
-            drift_flags.append(changed)
+        cumulative = (
+            cumulative
+            .replace([None, "None", ""], 0)
+            .fillna(0)
+            .astype(float)
+        )
 
-        # Save as boolean series
-        drift_results[job] = pd.Series(drift_flags, index=df_lines.index)
+        drift_flags = []
+
+        for value in cumulative:
+            try:
+                value = float(value)
+            except:
+                value = 0.0
+            changed = adwin.update(value)
+            drift_flags.append(bool(changed))   # <-- force boolean
+
+        # ENSURE SAME LENGTH AS df_lines
+        drift_series = pd.Series(drift_flags, index=cumulative.index)
+
+        # FORCE BOOLEAN + NO NONE
+        drift_series = drift_series.fillna(False).astype(bool)
+
+        drift_results[job] = drift_series
 
     # ==========================================================================================
-    # PLOT – CUMULATIVE LINES + DRIFT MARKERS
+    # 🔥 ENHANCED VISUALIZATION – CUMULATIVE EVOLUTION + DRIFT ANNOTATIONS
     # ==========================================================================================
 
     st.divider()
-    st.header("📈 Job Type Evolution with ADWIN Change Detection")
+    st.header("📈 Real-Time Job Type Evolution with Drift Signals")
 
     fig = go.Figure()
     colors = ["#2E86C1", "#28B463", "#CA6F1E"]
@@ -176,37 +194,100 @@ def run():
 
         cumulative = df_lines[job].cumsum()
 
-        # Main cumulative line
+        # Main line
         fig.add_trace(go.Scatter(
             x=df_lines.index,
             y=cumulative,
-            mode="lines+markers",
+            mode="lines",
             name=job,
-            line=dict(width=3, color=colors[idx]),
-            marker=dict(size=6)
+            line=dict(width=3, color=colors[idx])
         ))
 
-        # Drift markers
+        # Drift markers (+ annotation)
         drift_points = drift_results[job][drift_results[job] == True]
+
         if not drift_points.empty:
             fig.add_trace(go.Scatter(
                 x=drift_points.index,
                 y=cumulative.loc[drift_points.index],
-                mode="markers",
-                name=f"{job} – Drift",
-                marker=dict(size=14, color="red", symbol="circle-open"),
+                mode="markers+text",
+                name=f"{job} DRIFT",
+                text=["⚠ drift"] * len(drift_points),
+                textposition="top center",
+                marker=dict(size=14, color="red", symbol="diamond", line=dict(width=2, color="white")),
                 showlegend=True
             ))
 
     fig.update_layout(
         xaxis_title="Time",
         yaxis_title="Cumulative Job Count",
-        height=450,
-        legend=dict(title="Job Types"),
-        margin=dict(l=30, r=30, t=40, b=20)
+        height=500,
+        legend=dict(title="Job Type"),
+        margin=dict(l=20, r=20, t=50, b=20)
     )
 
     st.plotly_chart(fig, use_container_width=True)
+
+
+    # ==========================================================================================
+    # 🔥 DRIFT HEATMAP (JOB TYPE vs TIME)
+    # ==========================================================================================
+
+    st.subheader("🔥 Drift Heatmap (Intensity Over Time)")
+
+    heatmap_df = pd.DataFrame({
+        job: drift_results[job].astype(int)
+        for job in top3_jobs
+    })
+    heatmap_df.index = df_lines.index
+
+    fig_h = go.Figure(data=go.Heatmap(
+        z=heatmap_df.T.values,
+        x=heatmap_df.index,
+        y=heatmap_df.columns,
+        colorscale="Reds",
+        colorbar=dict(title="Drift Strength"),
+    ))
+
+    fig_h.update_layout(
+        xaxis_title="Time",
+        yaxis_title="Job Type",
+        height=300,
+        margin=dict(l=10, r=10, t=40, b=10)
+    )
+
+    st.plotly_chart(fig_h, use_container_width=True)
+
+
+    # ==========================================================================================
+    # 🔥 Drift Timeline – Human readable event feed
+    # ==========================================================================================
+
+    st.subheader("🕒 Drift Event Timeline")
+
+    timeline = []
+    for job in top3_jobs:
+        cumu = df_lines[job].cumsum()
+        for ts, flag in drift_results[job].items():
+            if flag:
+                timeline.append({
+                    "time": ts.strftime("%H:%M:%S"),
+                    "job": job,
+                    "value": cumu.loc[ts]
+                })
+
+    timeline_df = pd.DataFrame(timeline)
+
+    if timeline_df.empty:
+        st.info("No drift events detected yet.")
+    else:
+        st.dataframe(
+            timeline_df.sort_values("time"),
+            use_container_width=True,
+            hide_index=True
+        )
+
+
 
     # ==========================================================================================
     # DRIFT SUMMARY TABLE
@@ -216,10 +297,11 @@ def run():
 
     summary_rows = []
     for job in top3_jobs:
-        num_drifts = int(drift_results[job].sum())
+        num_drifts = int(drift_results[job].astype(int).sum())
         summary_rows.append({"Job Type": job, "Drift Events": num_drifts})
 
     st.table(pd.DataFrame(summary_rows))
+
 
     # ==========================================================================================
     # SIMPLE SNAPSHOT CHANGE DETECTION (your original)
