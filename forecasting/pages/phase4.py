@@ -249,6 +249,9 @@ def run():
         
     ## set the mode selection
     # ---------------- MODE SELECTOR ----------------
+    ecsf_roles_by_title_df = fetch_all_roles_by_title()
+    ecsf_role_with_tks_df = fetch_all_role_with_tks()
+    
     st.subheader("📊 View Mode")
     
     mode = st.radio(
@@ -256,19 +259,17 @@ def run():
         ["📁 View Existing Database", "⚡ Real-time Streaming"],
         horizontal=True
     )
-    # ---------------- FETCH DATA BASED ON MODE ----------------
-    ecsf_roles_by_title_df = fetch_all_roles_by_title()
-    ecsf_role_with_tks_df = fetch_all_role_with_tks()
-    if linkedin_jobs_df.empty:
-        st.warning("⚠️ No data found in the database. Start the producer to ingest data.")
-        st.stop()
 
+    
     if ecsf_roles_by_title_df.empty or ecsf_role_with_tks_df.empty:
         st.warning("⚠️ No static data found in the cassandra, Try to contact Samiha! Oh no contact info :')")
         st.stop()
-
+    # ---------------- FETCH DATA BASED ON MODE ----------------
     if mode == "📁 View Existing Database":
         linkedin_jobs_df = fetch_all()
+        if linkedin_jobs_df.empty:
+            st.warning("⚠️ No data found in the database. Start the producer to ingest data.")
+            st.stop()
         
         # the first visualization
         similarity_df = calculate_titles_similarity(linkedin_jobs_df,ecsf_roles_by_title_df)
@@ -279,6 +280,8 @@ def run():
         
         # the second visualization
         plot_skill_gap(linkedin_jobs_df,ecsf_role_with_tks_df)
+
+        st.divider()
         
         #st.success(f"✅ Loaded {len(linkedin_jobs_df)} jobs")
         
@@ -286,6 +289,10 @@ def run():
         st_autorefresh(interval=3000, key="matching_tracker_refresh")
 
         linkedin_jobs_df = fetch_recent(LOOKBACK_MINUTES)
+
+        if linkedin_jobs_df.empty:
+            st.warning("⚠️ No data found in the database. Start the producer to ingest data.")
+            st.stop()
 
         st.success(f"🔴 LIVE: {len(linkedin_jobs_df)} jobs")
         st.caption(f"Last refresh: {datetime.now().strftime('%H:%M:%S')}")
