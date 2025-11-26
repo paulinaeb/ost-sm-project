@@ -243,108 +243,265 @@ def run():
     st.table(pd.DataFrame(summary_rows))
 
     # ============================================================
-    # 9️⃣ – COUNTRY vs EUROPE TREND (FIXED)
+    # 9️⃣ – COUNTRY vs EUROPE TREND (10-SECOND BUCKETS + ADWIN)
     # ============================================================
-    st.divider()
-    st.header("🌍 Country vs Europe Trend (ADWIN)")
 
+    st.divider()
+    st.header("🌍 Country vs Europe – 10-Second Job Frequency Comparison")
+
+    # ---- Job selector ----
     job_options = df_country["title"].value_counts().index.tolist()
     selected_job = st.selectbox("Select Job Type", job_options)
 
-    # Europe series
+    # ---- PREPARE EUROPE-LEVEL DATA ----
     df_eu = df_raw[df_raw["title"] == selected_job].copy()
     df_eu["ts"] = pd.to_datetime(df_eu["ts"], errors="coerce")
     df_eu = df_eu.dropna(subset=["ts"]).set_index("ts").sort_index()
-    eu_series = df_eu.resample("2S").size().cumsum().fillna(0)
 
-    # Country series
-    df_ct = df_country[df_country["title"] == selected_job]
-    ct_series = df_ct.resample("2S").size().cumsum().fillna(0)
+    # 10-second buckets
+    eu_bucket = df_eu.resample("2S").size().rename("Europe")
 
-    # ALIGN
-    df_compare = pd.concat(
-        [ct_series.rename(selected_country_name), eu_series.rename("Europe")],
-        axis=1
-    ).fillna(method="ffill").fillna(0)
+    # ---- PREPARE COUNTRY-LEVEL DATA ----
+    df_ct = df_country[df_country["title"] == selected_job].copy()
+    ct_bucket = df_ct.resample("2S").size().rename(selected_country_name)
 
-    # ADWIN both
+    # ---- ALIGN BOTH SERIES ----
+    df_compare = pd.concat([ct_bucket, eu_bucket], axis=1).fillna(0)
+
+    # ---- APPLY ADWIN TO BUCKET VALUES (not cumulative!) ----
     ad_ct, ad_eu = ADWIN(), ADWIN()
     drift_ct, drift_eu = [], []
 
-    for a, b in zip(df_compare[selected_country_name], df_compare["Europe"]):
-        drift_ct.append(ad_ct.update(float(a)))
-        drift_eu.append(ad_eu.update(float(b)))
+    for c_val, e_val in zip(df_compare[selected_country_name], df_compare["Europe"]):
+        drift_ct.append(ad_ct.update(float(c_val)))
+        drift_eu.append(ad_eu.update(float(e_val)))
 
     df_compare["drift_ct"] = drift_ct
     df_compare["drift_eu"] = drift_eu
 
-    # PLOT
-    fig_compare = go.Figure()
+    # ============================================================
+    # PLOT COUNTRY VS EUROPE (10-second buckets)
+    # ============================================================
 
-    fig_compare.add_trace(go.Scatter(
+    fig_ce = go.Figure()
+
+    # Country
+    fig_ce.add_trace(go.Scatter(
         x=df_compare.index,
         y=df_compare[selected_country_name],
+        mode="lines+markers",
+        name=f"{selected_country_name} (2s frequency)",
+        line=dict(color="green", width=3)
+    ))
+
+    # Europe
+    fig_ce.add_trace(go.Scatter(
+        x=df_compare.index,
+        y=df_compare["Europe"],
+        mode="lines+markers",
+        name="Europe (2s frequency)",
+        line=dict(color="blue", width=3),
+        yaxis="y2"
+    ))
+
+    # Drift: country
+    dc = df_compare[df_compare["drift_ct"] == True]
+    fig_ce.add_trace(go.Scatter(
+        x=dc.index, y=dc[selected_country_name],
+        mode="markers", marker=dict(size=14, color="red", symbol="diamond"),
+        name=f"{selected_country_name} Drift"
+    ))
+
+    # Drift: Europe
+    de = df_compare[df_compare["drift_eu"] == True]
+    fig_ce.add_trace(go.Scatter(
+        x=de.index, y=de["Europe"],
+        mode="markers", marker=dict(size=14, color="orange", symbol="star"),
+        name="Europe Drift",
+        yaxis="y2"
+    ))
+
+    fig_ce.update_layout(
+        title=f"{selected_job} – 2s Job Frequency: {selected_country_name} vs Europe",
+        height=520,
+        yaxis=dict(title=f"{selected_country_name} Jobs / 2s", titlefont=dict(color="green")),
+        yaxis2=dict(title="Europe Jobs / 2s", overlaying="y", side="right", titlefont=dict(color="blue")),
+        legend=dict(orientation="h"),
+    )
+
+    st.plotly_chart(fig_ce, use_container_width=True)
+
+    # ============================================================
+    # TREND SUMMARY
+    # ============================================================
+
+    st.subheader("📘 Trend Summary (10-second bucket analysis)")
+
+    slope_ct = df_compare[selected_country_name].mean()
+    slope_eu = df_compare["Europe"].mean()
+
+    if slope_ct > slope_eu:
+        st.success(f"🚀 {selected_country_name} shows higher job frequency than Europe.")
+    elif slope_ct < slope_eu:
+        st.warning(f"📉 Europe shows higher job frequency.")
+    else:
+        st.info("⚖️ Both regions have similar frequencies.")
+
+    # ============================================================
+    # 🌟 CLEAN, EASY TREND VISUALIZATION BLOCK
+    # ============================================================
+
+    st.divider()
+    st.header("📈 Country vs Europe – Clear Trend Analysis")
+
+    # ------------------------------------------
+    # 1) Validate "ts" column
+    # ------------------------------------------
+    df_raw["ts"] = pd.to_datetime(df_raw["ts"], errors="coerce")
+    df_country["ts"] = pd.to_datetime(df_country["ts"], errors="coerce")
+
+    df_raw = df_raw.dropna(subset=["ts"])
+    df_country = df_country.dropna(subset=["ts"])
+
+    # ------------------------------------------
+    # 2) Select job type
+    # ------------------------------------------
+    job_options = df_country["title"].value_counts().index.tolist()
+
+    if len(job_options) == 0:
+        st.warning("No job types found for this country.")
+        st.stop()
+
+    selected_job = st.selectbox("Select Job Type", job_options)
+
+    # ------------------------------------------
+    # 3) Build Europe & Country time series (2s buckets)
+    # ------------------------------------------
+    df_europe_job = df_raw[df_raw["title"] == selected_job].set_index("ts").sort_index()
+    df_country_job = df_country[df_country["title"] == selected_job].set_index("ts").sort_index()
+
+    series_europe = df_europe_job.resample("2S").size().fillna(0)
+    series_country = df_country_job.resample("2S").size().fillna(0)
+
+    # ------------------------------------------
+    # 4) Smooth using Moving Average (window=5)
+    # ------------------------------------------
+    smooth_europe = series_europe.rolling(window=5, min_periods=1).mean()
+    smooth_country = series_country.rolling(window=5, min_periods=1).mean()
+
+    # ------------------------------------------
+    # 5) ALIGN both time series
+    # ------------------------------------------
+    df_trend = pd.concat([
+        smooth_country.rename(selected_country_name),
+        smooth_europe.rename("Europe")
+    ], axis=1).fillna(method="ffill").fillna(0)
+
+    # ------------------------------------------
+    # 6) ADWIN drift detection (light)
+    # ------------------------------------------
+    ad_ct, ad_eu = ADWIN(), ADWIN()
+    drift_ct, drift_eu = [], []
+
+    for a, b in zip(df_trend[selected_country_name], df_trend["Europe"]):
+        drift_ct.append(ad_ct.update(float(a)))
+        drift_eu.append(ad_eu.update(float(b)))
+
+    df_trend["drift_ct"] = drift_ct
+    df_trend["drift_eu"] = drift_eu
+
+    # ------------------------------------------
+    # 7) Plot CLEAN SMOOTHED TREND LINES
+    # ------------------------------------------
+    st.subheader("📉 Smoothed Trend Line (5-window moving average)")
+
+    fig1 = go.Figure()
+
+    fig1.add_trace(go.Scatter(
+        x=df_trend.index,
+        y=df_trend[selected_country_name],
         mode="lines",
         name=selected_country_name,
         line=dict(color="green", width=3)
     ))
 
-    fig_compare.add_trace(go.Scatter(
-        x=df_compare.index,
-        y=df_compare["Europe"],
+    fig1.add_trace(go.Scatter(
+        x=df_trend.index,
+        y=df_trend["Europe"],
         mode="lines",
         name="Europe",
-        line=dict(color="blue", width=3),
-        yaxis="y2"
+        line=dict(color="blue", width=3)
     ))
 
-    # Drift markers
-    dc = df_compare[df_compare["drift_ct"] == True]
-    de = df_compare[df_compare["drift_eu"] == True]
+    # Drift markers (minimal)
+    ct_drift_points = df_trend[df_trend["drift_ct"] == True]
+    eu_drift_points = df_trend[df_trend["drift_eu"] == True]
 
-    fig_compare.add_trace(go.Scatter(
-        x=dc.index, y=dc[selected_country_name],
-        mode="markers", marker=dict(size=12, color="red", symbol="diamond"),
+    fig1.add_trace(go.Scatter(
+        x=ct_drift_points.index,
+        y=ct_drift_points[selected_country_name],
+        mode="markers",
+        marker=dict(color="red", size=12, symbol="diamond"),
         name=f"{selected_country_name} Drift"
     ))
 
-    fig_compare.add_trace(go.Scatter(
-        x=de.index, y=de["Europe"],
-        mode="markers", yaxis="y2",
-        marker=dict(size=12, color="orange", symbol="star"),
+    fig1.add_trace(go.Scatter(
+        x=eu_drift_points.index,
+        y=eu_drift_points["Europe"],
+        mode="markers",
+        marker=dict(color="orange", size=12, symbol="star"),
         name="Europe Drift"
     ))
 
-    fig_compare.update_layout(
-        title=f"{selected_job}: {selected_country_name} vs Europe Trends",
-        height=520,
-        yaxis=dict(title=f"{selected_country_name} Count"),
-        yaxis2=dict(title="Europe Count", overlaying="y", side="right")
+    fig1.update_layout(
+        height=450,
+        yaxis_title="Smoothed Job Frequency (2s buckets)",
+        legend=dict(orientation="h"),
     )
 
-    st.plotly_chart(fig_compare, use_container_width=True)
+    st.plotly_chart(fig1, use_container_width=True)
 
-    # Trend summary
+    # ------------------------------------------
+    # 8) Trend GAP visualization
+    # ------------------------------------------
+    st.subheader("📊 Trend Gap (Country – Europe)")
+
+    gap = df_trend[selected_country_name] - df_trend["Europe"]
+
+    fig_gap = go.Figure()
+
+    fig_gap.add_trace(go.Scatter(
+        x=gap.index,
+        y=gap,
+        mode="lines",
+        line=dict(color="#8E44AD", width=3),
+        name="Trend Gap"
+    ))
+
+    # Shade above/below zero
+    fig_gap.add_hrect(y0=0, y1=gap.max(), fillcolor="green", opacity=0.1, line_width=0)
+    fig_gap.add_hrect(y0=gap.min(), y1=0, fillcolor="red", opacity=0.1, line_width=0)
+
+    fig_gap.update_layout(
+        height=300,
+        yaxis_title="Trend Gap (positive = country ahead)",
+    )
+
+    st.plotly_chart(fig_gap, use_container_width=True)
+
+    # ------------------------------------------
+    # 9) Trend Summary
+    # ------------------------------------------
     st.subheader("📘 Trend Summary")
-    slope_ct = df_compare[selected_country_name].diff().mean()
-    slope_eu = df_compare["Europe"].diff().mean()
+
+    slope_ct = df_trend[selected_country_name].diff().mean()
+    slope_eu = df_trend["Europe"].diff().mean()
 
     if slope_ct > slope_eu:
-        st.success(f"🚀 {selected_country_name} rising faster than Europe.")
+        st.success(f"🚀 {selected_country_name} is rising faster than Europe.")
     elif slope_ct < slope_eu:
-        st.warning(f"📉 Europe rising faster.")
+        st.warning(f"📉 Europe is rising faster than {selected_country_name}.")
     else:
-        st.info("⚖️ Trends are similar.")
+        st.info("⚖️ Both trends are similar.")
 
-
-    # ============================================================
-    # 🔟 – RECENT JOBS
-    # ============================================================
-    st.divider()
-    st.header("📋 Recent Jobs")
-
-    with st.expander("Show recent 20 jobs"):
-        cols = ["title", "company_name", "location", "skill"]
-        st.dataframe(df_country.reset_index()[cols].tail(20))
-
-    add_footer("CSOMA Team")
+    st.write(f"Drift Events — {selected_country_name}: **{sum(drift_ct)}**,  Europe: **{sum(drift_eu)}**")
