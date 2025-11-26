@@ -11,14 +11,14 @@ import plotly.express as px
 
 def run():
 
-    ## set the lookup minutes
+    # set the lookup minutes
     LOOKBACK_MINUTES = 60
 
-    ## set the Page title
+    # set the Page title
     st.title("🔍 Matching Tracker")
     #st.write("Content for Matching Tracker page coming soon...")
 
-    ## check cassandra key existence
+    # check cassandra key existence
     keyspace_exists, error_msg = validate_keyspace()
     if not keyspace_exists:
         st.error(f"❌ **Database Connection Error**")
@@ -31,7 +31,8 @@ def run():
         4. Refresh this page.
         """)
         st.stop()
-    
+
+    # check the existence of ecsf keyspace
     ecsf_keyspace_exists, ecsf_error_msg = validate_ecsf_keyspace()
     if not ecsf_keyspace_exists:
         st.error(f"❌ **Database Connection Error**")
@@ -48,6 +49,10 @@ def run():
 
     ## set the page footer
     add_footer("Samiha Nasser")
+
+    # ============================================================================
+    # SECTION 1: ECSF titles similarity to incoming linkedin jobs
+    # ============================================================================
 
     ## first stream mining process
     def calculate_titles_similarity(linkedin_jobs_df,ecsf_roles_by_title_df):
@@ -111,18 +116,15 @@ def run():
         # Add title
         st.subheader(f"Top {len(top_roles)} ECSF Roles by Number of Matching LinkedIn Titles")
 
-        # Create a beautiful blue-to-purple gradient color list
-        n_bars = len(top_roles)
-
         # Build Plotly figure
         fig = go.Figure(go.Bar(
             x=top_roles.values,
             y=top_roles.index,
             orientation='h',
             marker=dict(
-                color=top_roles.values,  # color by value for gradient effect
+                color=top_roles.values,
                 colorscale="Greens",
-                line=dict(color="#FFFFFF", width=0.8),  # subtle border
+                line=dict(color="#FFFFFF", width=0.8),
             ),
             hovertemplate="<b>%{y}</b><br>Matched Titles: <b>%{x}</b><extra></extra>",
             text=top_roles.values,
@@ -158,12 +160,16 @@ def run():
 
         return fig
 
-    def plot_skill_gap_hybrid(linkedin_jobs_df, ecsf_role_with_tks):
+    # ============================================================================
+    # SECTION 2: Skill gap between the official titles and the incoming linkedin jobs
+    # ============================================================================
+
+    def plot_skill_gap(linkedin_jobs_df, ecsf_role_with_tks):
         jobs = linkedin_jobs_df.copy()
         jobs['skills_clean'] = jobs['skill'].fillna("").str.lower().str.split(r'[,;•·]')
         jobs['skills_clean'] = jobs['skills_clean'].apply(lambda x: [s.strip() for s in x if s.strip()])
 
-        # Extract official competences (T+K+S)
+        # Extract official competences (T(task) + K(knowledge) + S(skill))
         def get_competences(tks):
             return [desc.lower().strip() for code, _, desc in tks]
 
@@ -182,10 +188,8 @@ def run():
             if role_jobs.empty:
                 coverage = 0
             else:
-                all_skills = [s for sublist in role_jobs['skills_clean'] for s in sublist]
                 all_skills_set = set(s.lower() for sublist in role_jobs['skills_clean'] for s in sublist)
                 covered = sum(1 for comp in official if any(kw in comp for kw in all_skills_set))
-                #covered = sum(1 for comp in official if any(kw in comp and kw in " ".join(all_skills) for kw in ["siem","iso 27001","nist","gdpr","vulnerability","penetration","incident","risk","soc","firewall","encryption","cryptography","forensics","cloud security","aws","azure"]))
                 coverage = covered / len(official)
             
             results.append({'Role': role.split(' (')[0], 'Coverage %': coverage})
@@ -199,14 +203,14 @@ def run():
         fig = go.Figure(go.Bar(
             x=df['Role'],
             y=df['Coverage %'],
-            text=df['Coverage %'].map("{:.0%}".format),   # ← Show % on top
+            text=df['Coverage %'].map("{:.0%}".format),
             textposition="outside",
             textfont=dict(color="black", size=13, family="Arial"),
             
             marker=dict(
-                color=df['Coverage %'],                    # ← This enables gradient
-                colorscale="Blues",                        # ← Your favorite!
-                line=dict(color="darkblue", width=1.2),    # ← Crisp borders
+                color=df['Coverage %'],
+                colorscale="Blues",
+                line=dict(color="darkblue", width=1.2),
             ),
             
             hovertemplate="<b>%{x}</b><br>Coverage: <b>%{y:.0%}</b><extra></extra>"
@@ -242,8 +246,9 @@ def run():
         fig.update_traces(textposition='outside')
         fig.update_layout(xaxis_tickangle=-45, yaxis_tickformat=".0%")
         st.plotly_chart(fig, use_container_width=True)
+        
     ## set the mode selection
-        # ---------------- MODE SELECTOR ----------------
+    # ---------------- MODE SELECTOR ----------------
     st.subheader("📊 View Mode")
     
     mode = st.radio(
@@ -254,16 +259,16 @@ def run():
     # ---------------- FETCH DATA BASED ON MODE ----------------
     ecsf_roles_by_title_df = fetch_all_roles_by_title()
     ecsf_role_with_tks_df = fetch_all_role_with_tks()
+    if linkedin_jobs_df.empty:
+        st.warning("⚠️ No data found in the database. Start the producer to ingest data.")
+        st.stop()
+
+    if ecsf_roles_by_title_df.empty or ecsf_role_with_tks_df.empty:
+        st.warning("⚠️ No static data found in the cassandra, Try to contact Samiha! Oh no contact info :')")
+        st.stop()
+
     if mode == "📁 View Existing Database":
         linkedin_jobs_df = fetch_all()
-        
-        if linkedin_jobs_df.empty:
-            st.warning("⚠️ No data found in the database. Start the producer to ingest data.")
-            st.stop()
-        
-        if ecsf_roles_by_title_df.empty or ecsf_role_with_tks_df.empty:
-            st.warning("⚠️ No static data found in the cassandra, Try to contact Samiha! Oh no contact info :')")
-            st.stop()
         
         # the first visualization
         similarity_df = calculate_titles_similarity(linkedin_jobs_df,ecsf_roles_by_title_df)
@@ -273,7 +278,7 @@ def run():
         st.divider()
         
         # the second visualization
-        plot_skill_gap_hybrid(linkedin_jobs_df,ecsf_role_with_tks_df)
+        plot_skill_gap(linkedin_jobs_df,ecsf_role_with_tks_df)
         
         #st.success(f"✅ Loaded {len(linkedin_jobs_df)} jobs")
         
@@ -284,14 +289,6 @@ def run():
 
         st.success(f"🔴 LIVE: {len(linkedin_jobs_df)} jobs")
         st.caption(f"Last refresh: {datetime.now().strftime('%H:%M:%S')}")
-        
-        if linkedin_jobs_df.empty:
-            st.warning("⚠️ No data found in the database. Start the producer to ingest data.")
-            st.stop()
-        
-        if ecsf_roles_by_title_df.empty or ecsf_role_with_tks_df.empty:
-            st.warning("⚠️ No static data found in the cassandra, Try to contact Samiha! Oh no contact info :')")
-            st.stop()
 
         similarity_df = calculate_titles_similarity(linkedin_jobs_df,ecsf_roles_by_title_df)
 
@@ -300,7 +297,7 @@ def run():
         st.divider()
 
         # the second visualization
-        plot_skill_gap_hybrid(linkedin_jobs_df,ecsf_role_with_tks_df)
+        plot_skill_gap(linkedin_jobs_df,ecsf_role_with_tks_df)
                 
     st.divider()
 
