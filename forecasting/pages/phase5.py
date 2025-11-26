@@ -314,21 +314,4 @@ def run():
 
     st.plotly_chart(fig_ce, use_container_width=True)
 
-    # ============================================================
-    # TREND SUMMARY
-    # ============================================================
-
-    st.subheader("📘 Trend Summary: Country vs Europe")
-
-    slope_ct = df_compare[selected_country_name].diff().mean()
-    slope_eu = df_compare["Europe"].diff().mean()
-
-    if slope_ct > slope_eu:
-        st.success(f"🚀 {selected_country_name} is rising faster than Europe for **{selected_job}**.")
-    elif slope_ct < slope_eu:
-        st.warning(f"📉 Europe is rising faster for **{selected_job}**.")
-    else:
-        st.info("⚖️ Both trends are similar.")
-
-    st.write(f"• {selected_country_name} drift events: **{sum(drift_ct)}**")
-    st.write(f"• Europe drift events: **{sum(drift_eu)}**")
+    
