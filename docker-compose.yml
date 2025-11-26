@@ -86,12 +86,11 @@ services:
       - cassandra-net
   
   python-app:
-    image: python:3.11-slim
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: csoma-streamlit:latest
     container_name: python-app
-    working_dir: /app
-    command: bash -lc "pip install -r requirements.txt && streamlit run forecasting/streamlit_app.py --server.port=8501 --server.address=0.0.0.0"
-    volumes:
-      - ./:/app
     environment:
       - CASSANDRA_HOSTS=cassandra-dev
       - CASSANDRA_PORT=9042
@@ -102,8 +101,14 @@ services:
     depends_on:
       cassandra-dev:
         condition: service_healthy
+    restart: unless-stopped
     networks:
-       - cassandra-net
+      - cassandra-net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8501').read()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
 
 
