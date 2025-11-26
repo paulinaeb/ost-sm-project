@@ -204,28 +204,6 @@ def run():
     st.plotly_chart(fig_roc, use_container_width=True)
 
 
-    # ============================================================
-    # 7️⃣ DRIFT TIMELINE
-    # ============================================================
-    st.subheader("🕒 Drift Event Timeline")
-
-    timeline = []
-    for job in top3:
-        cumu = df_lines[job].cumsum()
-        for ts, flag in drift_results[job].items():
-            if flag:
-                timeline.append({
-                    "time": ts.strftime("%H:%M:%S"),
-                    "job": job,
-                    "value": cumu.loc[ts]
-                })
-
-    timeline_df = pd.DataFrame(timeline)
-
-    if timeline_df.empty:
-        st.info("No drift detected yet.")
-    else:
-        st.dataframe(timeline_df, hide_index=True)
 
     # ============================================================
     # 🌍 COUNTRY vs EUROPE — Cumulative Trend with ADWIN
