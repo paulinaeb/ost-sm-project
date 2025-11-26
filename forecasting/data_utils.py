@@ -10,6 +10,9 @@ from cassandra_client import get_session
 
 # Configuration
 TABLE = os.getenv("CASSANDRA_TABLE", "jobs")
+ecsf_keyspace = 'ecsf'
+roles_by_tile_table = "roles_by_title"
+role_with_tks_table= 'role_with_tks'
 
 @st.cache_data(ttl=3)
 def fetch_recent(minutes=60):
@@ -83,3 +86,35 @@ def get_total_count():
     result = session.execute(f"SELECT COUNT(*) AS count FROM {TABLE};")
     row = result.one()
     return row["count"] if row else 0
+
+
+@st.cache_data(ttl=20)
+def fetch_all_roles_by_title():
+    session = get_session()
+    query = f"""
+    SELECT title_key
+    FROM {ecsf_keyspace}.{roles_by_tile_table};
+    """
+    rows = session.execute(query)
+    df = pd.DataFrame(list(rows))
+
+    if df.empty:
+        return df
+
+    return df
+
+@st.cache_data(ttl=20)
+def fetch_all_role_with_tks():
+    session = get_session()
+    query = f"""
+    SELECT title, alt_titles, tks
+    FROM {ecsf_keyspace}.{role_with_tks_table};
+    """
+    rows = session.execute(query)
+    df = pd.DataFrame(list(rows))
+
+    if df.empty:
+        return df
+
+    return df
+
