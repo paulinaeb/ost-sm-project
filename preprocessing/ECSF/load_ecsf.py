@@ -7,7 +7,8 @@ from cassandra.query import PreparedStatement
 from cassandra import InvalidRequest
 
 DATA_DIR = os.path.dirname(os.path.abspath(__file__))  # Same directory as this script
-CONTACT_POINTS = ["127.0.0.1"]  # change if your Cassandra is remote
+CASSANDRA_HOSTS = os.getenv('CASSANDRA_HOSTS', '127.0.0.1').split(',')
+CASSANDRA_PORT = int(os.getenv('CASSANDRA_PORT', '9042'))
 KEYSPACE = "ecsf"
 
 def read_csv(path):
@@ -29,7 +30,7 @@ def to_list_from_str(s):
 
 def main():
     # connect
-    cluster = Cluster(CONTACT_POINTS)
+    cluster = Cluster(CASSANDRA_HOSTS, port=CASSANDRA_PORT)
     session = cluster.connect()
     # create keyspace if not exists
     session.execute(f"""
