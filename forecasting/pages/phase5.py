@@ -228,27 +228,48 @@ def run():
         st.dataframe(timeline_df, hide_index=True)
 
     # ============================================================
-    # 8️⃣ COUNTRY vs EUROPE – Cumulative Trend + ADWIN
+    # 🌍 COUNTRY vs EUROPE — Cumulative Trend with ADWIN
     # ============================================================
+
     st.divider()
-    st.header("🌍 Country vs Europe – Cumulative Trend Comparison (with ADWIN)")
+    st.header("🌍 Country vs Europe – Cumulative Trend (with ADWIN Drift Detection)")
 
+    # ---- Job selector ----
     job_options = df_country["title"].value_counts().index.tolist()
-    selected_job = st.selectbox("Select Job Type", job_options)
+    selected_job = st.selectbox("Select Job Type for Comparison", job_options)
 
-    # EUROPE
-    df_eu = df_raw[df_raw["title"] == selected_job].copy()
-    df_eu = df_eu.set_index("ts").sort_index()
-    eu_series = df_eu.resample("2S").size().cumsum().rename("Europe")
+    # ============================================================
+    # EUROPE = all European countries (EUROPEAN_COUNTRIES list)
+    # EXCLUDING the selected country
+    # ============================================================
 
-    # COUNTRY
-    df_ct = df_country[df_country["title"] == selected_job].copy()
-    ct_series = df_ct.resample("2S").size().cumsum().rename(selected_country_name)
+    europe_df = df_raw[
+        (df_raw["title"] == selected_job) &
+        (df_raw["country_iso"].isin(EUROPEAN_COUNTRIES)) &
+        (df_raw["country_iso"] != selected_iso)   # exclude selected country
+    ].copy()
 
-    # ALIGN BOTH
-    df_compare = pd.concat([ct_series, eu_series], axis=1).fillna(method="ffill").fillna(0)
+    europe_df = europe_df.set_index("ts").sort_index()
+    europe_series = europe_df.resample("2S").size().cumsum().rename("Europe")
 
-    # ADWIN
+    # ============================================================
+    # COUNTRY = selected country
+    # ============================================================
+
+    country_df = df_country[df_country["title"] == selected_job].copy()
+    country_series = country_df.resample("2S").size().cumsum().rename(selected_country_name)
+
+    # ============================================================
+    # ALIGN BOTH SERIES (forward-fill missing timestamps)
+    # ============================================================
+
+    df_compare = pd.concat([country_series, europe_series], axis=1)
+    df_compare = df_compare.fillna(method="ffill").fillna(0)
+
+    # ============================================================
+    # ADWIN DRIFT DETECTION
+    # ============================================================
+
     ad_ct, ad_eu = ADWIN(delta=0.2), ADWIN(delta=0.2)
     drift_ct, drift_eu = [], []
 
@@ -259,27 +280,32 @@ def run():
     df_compare["drift_ct"] = drift_ct
     df_compare["drift_eu"] = drift_eu
 
-    # PLOT
+    # ============================================================
+    # PLOT COUNTRY vs EUROPE
+    # ============================================================
+
     fig_ce = go.Figure()
 
+    # Country line
     fig_ce.add_trace(go.Scatter(
         x=df_compare.index,
         y=df_compare[selected_country_name],
         mode="lines",
-        name=f"{selected_country_name}",
+        name=f"{selected_country_name} (cumulative)",
         line=dict(color="green", width=3)
     ))
 
+    # Europe line
     fig_ce.add_trace(go.Scatter(
         x=df_compare.index,
         y=df_compare["Europe"],
         mode="lines",
-        name="Europe",
+        name="Europe (cumulative)",
         line=dict(color="blue", width=3),
         yaxis="y2"
     ))
 
-    # Drifts
+    # Country drift markers
     dc = df_compare[df_compare["drift_ct"] == True]
     fig_ce.add_trace(go.Scatter(
         x=dc.index,
@@ -289,6 +315,7 @@ def run():
         name=f"{selected_country_name} Drift"
     ))
 
+    # Europe drift markers
     de = df_compare[df_compare["drift_eu"] == True]
     fig_ce.add_trace(go.Scatter(
         x=de.index,
@@ -300,28 +327,30 @@ def run():
     ))
 
     fig_ce.update_layout(
-        title=f"{selected_job} – Cumulative Trend: {selected_country_name} vs Europe",
+        title=f"{selected_job} – Cumulative Trend: {selected_country_name} vs Europe (All Countries Combined)",
         height=520,
         yaxis=dict(title=f"{selected_country_name} Count"),
-        yaxis2=dict(title="Europe Count", overlaying="y", side="right")
+        yaxis2=dict(title="Europe Count", overlaying="y", side="right"),
+        legend=dict(orientation="h")
     )
 
     st.plotly_chart(fig_ce, use_container_width=True)
 
-    # SUMMARY
-    st.subheader("📘 Trend Summary")
+    # ============================================================
+    # TREND SUMMARY
+    # ============================================================
+
+    st.subheader("📘 Trend Summary: Country vs Europe")
 
     slope_ct = df_compare[selected_country_name].diff().mean()
     slope_eu = df_compare["Europe"].diff().mean()
 
     if slope_ct > slope_eu:
-        st.success(f"🚀 {selected_country_name} rising faster for **{selected_job}**.")
+        st.success(f"🚀 {selected_country_name} is rising faster than Europe for **{selected_job}**.")
     elif slope_ct < slope_eu:
-        st.warning(f"📉 Europe rising faster for **{selected_job}**.")
+        st.warning(f"📉 Europe is rising faster for **{selected_job}**.")
     else:
         st.info("⚖️ Both trends are similar.")
 
     st.write(f"• {selected_country_name} drift events: **{sum(drift_ct)}**")
     st.write(f"• Europe drift events: **{sum(drift_eu)}**")
-
-    add_footer("CSOMA Team")
