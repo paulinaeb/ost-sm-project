@@ -5,7 +5,7 @@ from streamlit_autorefresh import st_autorefresh
 from datetime import datetime
 from rapidfuzz import fuzz
 import pandas as pd
-from cassandra_client import validate_keyspace
+from cassandra_client import validate_keyspace, validate_ecsf_keyspace
 import plotly.graph_objects as go
 import plotly.express as px
 
@@ -32,6 +32,19 @@ def run():
         """)
         st.stop()
     
+    ecsf_keyspace_exists, ecsf_error_msg = validate_ecsf_keyspace()
+    if not ecsf_keyspace_exists:
+        st.error(f"❌ **Database Connection Error**")
+        st.warning(ecsf_error_msg)
+        st.info("""
+        **To fix this:**
+        1. Make sure Cassandra is running: `docker-compose up -d`
+        2. From the command line type `docker exec -it cassandra-dev cqlsh`
+        3. Create the tables schema by running , inside cqlsh,`sql SOURCE 'preprocessing/ECSF/keyspace_tables_creation.sql';`
+        4. Load ECSF data `python preprocessing/ECSF/load_ecsf.py`
+        5. Refresh this page.
+        """)
+        st.stop()
 
     ## set the page footer
     add_footer("Samiha Nasser")
@@ -292,5 +305,6 @@ def run():
     st.divider()
 
 # how to commit and push
+# git checkout phase1
 # git commit -m "add to matching tracker : first visualization" forecasting/pages/phase4.py
 # git push origin phase1
