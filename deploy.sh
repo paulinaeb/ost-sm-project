@@ -61,17 +61,56 @@ main() {
   wait_health "$CASSANDRA_CONTAINER" 300
   wait_health "$KAFKA_CONTAINER" 300
 
+  # Give Cassandra extra time to fully initialize
+  echo "Waiting for Cassandra to be fully ready..."
+  sleep 10
+
   echo "[6/7] Initializing Cassandra schema (idempotent)..."
   if docker exec -i "$CASSANDRA_CONTAINER" cqlsh -e "DESCRIBE KEYSPACE $KEYSPACE" >/dev/null 2>&1; then
     echo "Keyspace '$KEYSPACE' already exists. Skipping schema init."
   else
     if [ -f "$SCHEMA_FILE" ]; then
-      docker exec -i "$CASSANDRA_CONTAINER" cqlsh < "$SCHEMA_FILE"
-      echo "Schema initialized from $SCHEMA_FILE."
+      # Retry schema init up to 3 times (Cassandra may still be initializing)
+      for i in 1 2 3; do
+        echo "Attempting schema init (try $i/3)..."
+        if docker exec -i "$CASSANDRA_CONTAINER" cqlsh < "$SCHEMA_FILE" 2>/dev/null; then
+          echo "Schema initialized from $SCHEMA_FILE."
+          break
+        else
+          if [ "$i" -lt 3 ]; then
+            echo "Schema init failed, retrying in 5s..."
+            sleep 5
+          else
+            echo "ERROR: Schema init failed after 3 attempts."
+            exit 1
+          fi
+        fi
+      done
+      echo "Loading ECSF data..."
+      # Get the actual network name created by compose (includes project prefix)
+      NETWORK_NAME=$($COMPOSE -f "$COMPOSE_FILE" ps -q cassandra-dev | xargs docker inspect -f '{{range .NetworkSettings.Networks}}{{.NetworkID}}{{end}}' | head -1 | xargs docker network inspect -f '{{.Name}}')
+      
+      docker run --rm --network "$NETWORK_NAME" \
+        -e CASSANDRA_HOSTS=cassandra-dev \
+        -e CASSANDRA_PORT=9042 \
+        csoma-streamlit:latest \
+        python preprocessing/ECSF/load_ecsf.py
     else
       echo "WARNING: $SCHEMA_FILE not found. Skipping schema init."
     fi
   fi
+
+#   echo "[7/8] Loading ECSF data (if not already loaded)..."
+#   # Check if data exists (adjust query to your schema)
+#   if docker exec -i "$CASSANDRA_CONTAINER" cqlsh -e "SELECT COUNT(*) FROM $KEYSPACE.ecsf_jobs LIMIT 1" 2>/dev/null | grep -q "0 rows"; then
+#     echo "No ECSF data found. Loading..."
+#     docker exec -i "$CASSANDRA_CONTAINER" cqlsh < preprocessing/ECSF/load_ecsf.py  # if it's CQL
+#     # OR run Python script if it's a .py file:
+#     # docker run --rm --network cassandra-net -v "$(pwd):/app" python:3.11-slim \
+#     #   bash -c "pip install cassandra-driver && python /app/preprocessing/ECSF/load_ecsf.py"
+#   else
+#     echo "ECSF data already present. Skipping load."
+#   fi
 
   echo "[7/7] Waiting for Streamlit app..."
   wait_health "$APP_CONTAINER" 300
