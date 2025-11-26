@@ -96,7 +96,6 @@ def run():
     # COUNTRY SELECTOR
     # ============================================================
     st.divider()
-    st.header("🌍 Select Country")
 
     countries_available = sorted(df_raw["country_iso"].dropna().unique())
 
@@ -116,101 +115,13 @@ def run():
     df_country = df_raw[df_raw["country_iso"] == selected_iso].copy()
     df_country = df_country.set_index("ts").sort_index()
 
-    # ============================================================
-    # 1️⃣ TOP 3 JOB TYPES
-    # ============================================================
-    top3 = df_country["title"].value_counts().head(3).index.tolist()
-
-    st.subheader(f"🎯 Top 3 Job Types in {selected_country_name}")
-    for i, job in enumerate(top3, start=1):
-        st.write(f"**{i}. {job}**")
-
-    # ============================================================
-    # 2️⃣ BUILD df_lines (2-second buckets)
-    # ============================================================
-    lines = []
-    for job in top3:
-        s = df_country[df_country["title"] == job].resample("2S").size().rename(job)
-        lines.append(s)
-
-    df_lines = pd.concat(lines, axis=1).fillna(0)
-
-    # ============================================================
-    # 3️⃣ ADWIN – CUMULATIVE DRIFT DETECTION
-    # ============================================================
-    drift_results = {}
-
-    for job in top3:
-        ad = ADWIN(delta=0.2)
-        cumulative = df_lines[job].cumsum().astype(float)
-
-        flags = []
-        for v in cumulative:
-            flags.append(bool(ad.update(float(v))))
-
-        drift_results[job] = pd.Series(flags, index=cumulative.index)
-
-    # ============================================================
-    # 4️⃣ CUMULATIVE EVOLUTION + DRIFT
-    # ============================================================
-    st.divider()
-    st.header("📈 Job Evolution (Cumulative) with ADWIN Drift Detection")
-
-    fig = go.Figure()
-    colors = ["#2E86C1", "#28B463", "#CA6F1E"]
-
-    for idx, job in enumerate(top3):
-        cumu = df_lines[job].cumsum()
-
-        fig.add_trace(go.Scatter(
-            x=df_lines.index,
-            y=cumu,
-            mode="lines",
-            name=job,
-            line=dict(color=colors[idx], width=3)
-        ))
-
-        drift_points = drift_results[job][drift_results[job] == True]
-        if not drift_points.empty:
-            fig.add_trace(go.Scatter(
-                x=drift_points.index,
-                y=cumu.loc[drift_points.index],
-                mode="markers",
-                marker=dict(size=14, color="red", symbol="diamond"),
-                name=f"{job} Drift"
-            ))
-
-    st.plotly_chart(fig, use_container_width=True)
-
-    # ============================================================
-    # 5️⃣ RATE OF CHANGE (Derivative)
-    # ============================================================
-    st.subheader("📈 Rate of Change (Δ jobs every 2 seconds)")
-
-    roc_df = pd.DataFrame()
-    for job in top3:
-        roc_df[job] = df_lines[job].diff().fillna(0)
-
-    fig_roc = go.Figure()
-    for idx, job in enumerate(top3):
-        fig_roc.add_trace(go.Scatter(
-            x=roc_df.index,
-            y=roc_df[job],
-            mode="lines+markers",
-            name=f"{job} ROC",
-            line=dict(width=2, color=colors[idx])
-        ))
-
-    st.plotly_chart(fig_roc, use_container_width=True)
-
-
 
     # ============================================================
     # 🌍 COUNTRY vs EUROPE — Cumulative Trend with ADWIN
     # ============================================================
 
     st.divider()
-    st.header("🌍 Country vs Europe – Cumulative Trend (with ADWIN Drift Detection)")
+    st.header("🌍 Country vs Europe – Trend (with ADWIN Drift Detection)")
 
     # ---- Job selector ----
     job_options = df_country["title"].value_counts().index.tolist()
@@ -269,7 +180,7 @@ def run():
         x=df_compare.index,
         y=df_compare[selected_country_name],
         mode="lines",
-        name=f"{selected_country_name} (cumulative)",
+        name=f"{selected_country_name} ()",
         line=dict(color="green", width=3)
     ))
 
@@ -305,7 +216,7 @@ def run():
     ))
 
     fig_ce.update_layout(
-        title=f"{selected_job} – Cumulative Trend: {selected_country_name} vs Europe (All Countries Combined)",
+        title=f"{selected_job} – Trend: {selected_country_name} vs Europe (All Countries Combined)",
         height=520,
         yaxis=dict(title=f"{selected_country_name} Count"),
         yaxis2=dict(title="Europe Count", overlaying="y", side="right"),
@@ -313,5 +224,96 @@ def run():
     )
 
     st.plotly_chart(fig_ce, use_container_width=True)
+
+    
+
+    # ============================================================
+    # 1️⃣ TOP 3 JOB TYPES
+    # ============================================================
+    top3 = df_country["title"].value_counts().head(3).index.tolist()
+
+    st.subheader(f"🎯 Top 3 Job Types in {selected_country_name}")
+    for i, job in enumerate(top3, start=1):
+        st.write(f"**{i}. {job}**")
+
+    # ============================================================
+    # 2️⃣ BUILD df_lines (2-second buckets)
+    # ============================================================
+    lines = []
+    for job in top3:
+        s = df_country[df_country["title"] == job].resample("2S").size().rename(job)
+        lines.append(s)
+
+    df_lines = pd.concat(lines, axis=1).fillna(0)
+
+    # ============================================================
+    # 3️⃣ ADWIN – CUMULATIVE DRIFT DETECTION
+    # ============================================================
+    drift_results = {}
+
+    for job in top3:
+        ad = ADWIN(delta=0.2)
+        cumulative = df_lines[job].cumsum().astype(float)
+
+        flags = []
+        for v in cumulative:
+            flags.append(bool(ad.update(float(v))))
+
+        drift_results[job] = pd.Series(flags, index=cumulative.index)
+
+    # ============================================================
+    # 4️⃣ CUMULATIVE EVOLUTION + DRIFT
+    # ============================================================
+    st.divider()
+    st.header("📈 Job Evolution ")
+
+    fig = go.Figure()
+    colors = ["#2E86C1", "#28B463", "#CA6F1E"]
+
+    for idx, job in enumerate(top3):
+        cumu = df_lines[job].cumsum()
+
+        fig.add_trace(go.Scatter(
+            x=df_lines.index,
+            y=cumu,
+            mode="lines",
+            name=job,
+            line=dict(color=colors[idx], width=3)
+        ))
+
+        drift_points = drift_results[job][drift_results[job] == True]
+        if not drift_points.empty:
+            fig.add_trace(go.Scatter(
+                x=drift_points.index,
+                y=cumu.loc[drift_points.index],
+                mode="markers",
+                marker=dict(size=14, color="red", symbol="diamond"),
+                name=f"{job} Drift"
+            ))
+
+    st.plotly_chart(fig, use_container_width=True)
+
+    # ============================================================
+    # 5️⃣ RATE OF CHANGE (Derivative)
+    # ============================================================
+    st.subheader("📈 Rate of Change (Δ jobs every 2 seconds)")
+
+    roc_df = pd.DataFrame()
+    for job in top3:
+        roc_df[job] = df_lines[job].diff().fillna(0)
+
+    fig_roc = go.Figure()
+    for idx, job in enumerate(top3):
+        fig_roc.add_trace(go.Scatter(
+            x=roc_df.index,
+            y=roc_df[job],
+            mode="lines+markers",
+            name=f"{job} ROC",
+            line=dict(width=2, color=colors[idx])
+        ))
+
+    st.plotly_chart(fig_roc, use_container_width=True)
+
+
 
     
