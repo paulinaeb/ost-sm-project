@@ -15,11 +15,32 @@ from cassandra_client import validate_keyspace
 # --- CONFIGURATION ---
 # Citation: Cerqueira, V., et al. "Machine Learning vs Statistical Methods for Time Series Forecasting: Size Matters". 
 # We implement a Recursive Multi-step Forecasting strategy using Random Forest.
-LAG_FEATURES = [1, 2, 3, 4]  # Use past 4 weeks to predict next week
-TEST_SIZE_WEEKS = 4          # Last 4 weeks for testing
-VAL_SIZE_WEEKS = 4           # Previous 4 weeks for validation
-FORECAST_HORIZON = 12        # Weeks to predict into the future
-DATA_START_THRESHOLD = 10    # Minimum jobs per week to consider the time series "started"
+
+# Configuration will now be dynamic based on user selection
+DEFAULT_CONFIG = {
+    'weekly': {
+        'LAG_FEATURES': [1, 2, 3, 4],  # Use past 4 weeks
+        'TEST_SIZE': 3,                 # Last 3 weeks for testing
+        'VAL_SIZE': 3,                  # Previous 3 weeks for validation
+        'FORECAST_HORIZON': 3,         # Periods to predict into the future
+        'DATA_START_THRESHOLD': 10,     # Minimum jobs per period
+        'MIN_PERIODS_REQUIRED': 12,     # Minimum periods needed
+        'FREQ': 'W-MON',                # Week starting Monday
+        'PERIOD_NAME': 'week',
+        'TIMEDELTA_UNIT': 'weeks'
+    },
+    'daily': {
+        'LAG_FEATURES': [1, 2, 3, 7, 14],  # Use past 1, 2, 3 days, 1 week, 2 weeks
+        'TEST_SIZE': 7,                    # Last 7 days for testing
+        'VAL_SIZE': 7,                     # Previous 7 days for validation
+        'FORECAST_HORIZON': 7,             # Periods to predict into the future
+        'DATA_START_THRESHOLD': 5,          # Minimum jobs per day
+        'MIN_PERIODS_REQUIRED': 42,         # Minimum days needed (6 weeks)
+        'FREQ': 'D',                        # Daily
+        'PERIOD_NAME': 'date',
+        'TIMEDELTA_UNIT': 'days'
+    }
+}
 
 # Streaming Config
 LOOKBACK_MINUTES = 60        # How far back to look for the "Live" stream
@@ -40,103 +61,83 @@ def preprocess_data(raw_data):
     return raw_data
 
 # --- PREPROCESSING & ML FUNCTIONS (BATCH LAYER) ---
-def preprocess_weekly_data(df):
+
+def preprocess_temporal_data(df, config):
     """
-    Aggregates raw job data into weekly counts per country and fills missing weeks.
+    Aggregates raw job data into specified time periods per country.
     """
     if df is None or df.empty:
         return pd.DataFrame()
 
     df = df.copy()
-    # Ensure datetime
     df['created_at'] = pd.to_datetime(df['created_at'])
-    # Normalize to start of week (Monday)
-    df['week'] = df['created_at'].dt.to_period('W').apply(lambda r: r.start_time)
     
-    # Group by Country and Week
-    weekly_counts = df.groupby(['country', 'week']).size().reset_index(name='job_count')
+    # Normalize to period based on granularity
+    if config['FREQ'] == 'W-MON':
+        df['period'] = df['created_at'].dt.to_period('W').apply(lambda r: r.start_time)
+    else:  # daily
+        df['period'] = df['created_at'].dt.floor('D')
     
-    if weekly_counts.empty:
+    temporal_counts = df.groupby(['country', 'period']).size().reset_index(name='job_count')
+    
+    if temporal_counts.empty:
         return pd.DataFrame()
 
-    # Determine global end date to ensure all forecasts align to "now"
-    max_date = weekly_counts['week'].max()
-
+    max_date = temporal_counts['period'].max()
     full_df = []
-    #all_weeks = pd.date_range(start=weekly_counts['week'].min(), end=weekly_counts['week'].max(), freq='W-MON')
-    
-    for country in weekly_counts['country'].unique():
-        #country_data = weekly_counts[weekly_counts['country'] == country].set_index('week')
-        country_data = weekly_counts[weekly_counts['country'] == country].sort_values('week')
-    #     # Reindex to fill missing weeks with 0
-    #     country_data = country_data.reindex(all_weeks, fill_value=0).reset_index().rename(columns={'index': 'week'})
-    #     country_data['country'] = country
-    #     full_df.append(country_data)
-        
-    # return pd.concat(full_df, ignore_index=True)
-    # --- SIGNIFICANT DATA START LOGIC ---
-        # Find the first week where we have significant data (e.g., > 10 jobs)
-        # This identifies the "spike" where valid data collection began
-        active_weeks = country_data[country_data['job_count'] > DATA_START_THRESHOLD]['week']
-        
-        if not active_weeks.empty:
-            start_date = active_weeks.min()
-            # Filter the dataframe to only show data after that spike
-            country_data = country_data[country_data['week'] >= start_date]
-        else:
-            # If a country NEVER hits the threshold, we might just keep what we have
-            # or skip it. Here we keep it but rely on the original start.
-            start_date = country_data['week'].min()
 
-        # --- REINDEXING ---
-        # We only care about missing weeks (0s) AFTER the significant start date.
-        country_data = country_data.set_index('week')
+    for country in temporal_counts['country'].unique():
+        country_data = temporal_counts[temporal_counts['country'] == country].sort_values('period')
         
-        # Create a continuous range from the *country-specific* start to the *global* end
-        relevant_weeks = pd.date_range(start=start_date, end=max_date, freq='W-MON')
+        active_periods = country_data[country_data['job_count'] > config['DATA_START_THRESHOLD']]['period']
         
-        # Reindex fills gaps with 0, but only within the relevant window
-        country_data = country_data.reindex(relevant_weeks, fill_value=0).reset_index().rename(columns={'index': 'week'})
+        if not active_periods.empty:
+            start_date = active_periods.min()
+            country_data = country_data[country_data['period'] >= start_date]
+        else:
+            start_date = country_data['period'].min()
+
+        country_data = country_data.set_index('period')
+        relevant_periods = pd.date_range(start=start_date, end=max_date, freq=config['FREQ'])
+        
+        country_data = country_data.reindex(relevant_periods, fill_value=0).reset_index().rename(columns={'index': 'period'})
         country_data['country'] = country
         full_df.append(country_data)
         
     return pd.concat(full_df, ignore_index=True)
 
-def create_lag_features(df, lags):
+def create_lag_features(df, config):
     """
     Creates lag features for supervised learning.
-    Input: Time series data.
-    Output: DataFrame with columns like 'lag_1', 'lag_2', etc.
     """
     df = df.copy()
-    for lag in lags:
+    for lag in config['LAG_FEATURES']:
         df[f'lag_{lag}'] = df['job_count'].shift(lag)
     return df.dropna()
 
-def split_data_time_series(df):
+def split_data_time_series(df, config):
     """
     Splits data into Train, Validation, and Test sets respecting temporal order.
     """
-    unique_weeks = sorted(df['week'].unique())
-    # Safety check for small datasets
-    if len(unique_weeks) < (TEST_SIZE_WEEKS + VAL_SIZE_WEEKS + 2):
+    unique_periods = sorted(df['period'].unique())
+    
+    if len(unique_periods) < (config['TEST_SIZE'] + config['VAL_SIZE'] + 2):
         return df, pd.DataFrame(), pd.DataFrame()
     
-    # Determine split points
-    test_start = unique_weeks[-TEST_SIZE_WEEKS]
-    val_start = unique_weeks[-(TEST_SIZE_WEEKS + VAL_SIZE_WEEKS)]
+    test_start = unique_periods[-config['TEST_SIZE']]
+    val_start = unique_periods[-(config['TEST_SIZE'] + config['VAL_SIZE'])]
     
-    train = df[df['week'] < val_start]
-    val = df[(df['week'] >= val_start) & (df['week'] < test_start)]
-    test = df[df['week'] >= test_start]
+    train = df[df['period'] < val_start]
+    val = df[(df['period'] >= val_start) & (df['period'] < test_start)]
+    test = df[df['period'] >= test_start]
 
     return train, val, test
 
-def train_model(train_df):
+def train_model(train_df, config):
     """
     Trains a Random Forest Regressor.
     """
-    X_train = train_df[[f'lag_{l}' for l in LAG_FEATURES]]
+    X_train = train_df[[f'lag_{l}' for l in config['LAG_FEATURES']]]
     y_train = train_df['job_count']
     
     # RandomForest is chosen for its robustness to non-linearities and lack of scaling requirement
@@ -145,14 +146,14 @@ def train_model(train_df):
 
     return model
 
-def evaluate_model(model, test_df):
+def evaluate_model(model, test_df, config):
     """
     Calculates RMSE and MAE for the model.
     """
     if test_df.empty:
         return 0, 0, []
         
-    X_test = test_df[[f'lag_{l}' for l in LAG_FEATURES]]
+    X_test = test_df[[f'lag_{l}' for l in config['LAG_FEATURES']]]
     y_test = test_df['job_count']
     
     predictions = model.predict(X_test)
@@ -161,14 +162,14 @@ def evaluate_model(model, test_df):
     
     return rmse, mae, predictions
 
-def recursive_forecast(model, last_window, horizon):
+def recursive_forecast(model, last_window, config):
     """
     Generates future predictions by feeding predictions back into the model.
     """
     future_predictions = []
     current_features = list(last_window) # Should be [lag_1, lag_2, ...]
     
-    for _ in range(horizon):
+    for _ in range(config['FORECAST_HORIZON']):
         # Prepare features for single prediction
         # Scikit-learn expects 2D array
         features_array = np.array(current_features).reshape(1, -1)
@@ -182,44 +183,46 @@ def recursive_forecast(model, last_window, horizon):
         
     return future_predictions
 
-def visualize_results(country, train, val, test, test_preds, future_preds, rmse):
+def visualize_results(country, train, val, test, test_preds, future_preds, rmse, config):
     """
     Visualizes historical data, test performance, and future forecasts.
     """
     fig = go.Figure()
+    period_name = config['PERIOD_NAME'].capitalize()
 
-    # 1. Historical Data (Train + Val)
     history = pd.concat([train, val])
     fig.add_trace(go.Scatter(
-        x=history['week'], 
+        x=history['period'], 
         y=history['job_count'],
         mode='lines',
         name='Historical Data (Train/Val)',
         line=dict(color='gray', width=1)
     ))
 
-    # 2. Test Data (Actual)
     if not test.empty:
         fig.add_trace(go.Scatter(
-            x=test['week'], 
+            x=test['period'], 
             y=test['job_count'],
             mode='lines+markers',
             name='Actual Test Data',
             line=dict(color='blue')
         ))
-        # 3. Test Predictions (Model Performance)
+        
         if len(test_preds) > 0:
             fig.add_trace(go.Scatter(
-                x=test['week'], 
+                x=test['period'], 
                 y=test_preds,
                 mode='lines+markers',
                 name=f'Model Validation (RMSE: {rmse:.2f})',
                 line=dict(color='orange', dash='dot')
             ))    
 
-    # 4. Future Forecast
-    last_date = test['week'].max() if not test.empty else history['week'].max()
-    future_dates = [last_date + timedelta(weeks=i+1) for i in range(len(future_preds))]
+    last_date = test['period'].max() if not test.empty else history['period'].max()
+    
+    if config['TIMEDELTA_UNIT'] == 'weeks':
+        future_dates = [last_date + timedelta(weeks=i+1) for i in range(len(future_preds))]
+    else:  # days
+        future_dates = [last_date + timedelta(days=i+1) for i in range(len(future_preds))]
     
     fig.add_trace(go.Scatter(
         x=future_dates, 
@@ -230,8 +233,8 @@ def visualize_results(country, train, val, test, test_preds, future_preds, rmse)
     ))
 
     fig.update_layout(
-        title=f"Weekly Analytics & Forecast: {country}",
-        xaxis_title="Week",
+        title=f"{period_name}ly Analytics & Forecast: {country}",
+        xaxis_title=period_name,
         yaxis_title="Job Postings",
         template="plotly_white",
         hovermode="x unified",
@@ -271,101 +274,37 @@ def visualize_streaming_data(df):
     )
     st.plotly_chart(fig, use_container_width=True)
 
-# def generate_predictions(df, weeks_to_predict=12):
-#     """
-#     Trains a model per country and generates future predictions.
-#     """
-#     df = df.copy()
-    
-#     # 1. Convert 'week' to a numerical value (Time Delta) for Linear Regression
-#     # We use "days since the first date" so the math is continuous
-#     min_date = df['week'].min()
-#     df['time_index'] = (df['week'] - min_date).dt.days
-    
-#     future_preds = []
-
-#     # 2. Train a separate simple model for each country
-#     # (This is often more accurate than one giant model for simple trends)
-#     for country in df['country'].unique():
-#         country_data = df[df['country'] == country]
-        
-#         if len(country_data) < 2:
-#             continue # Not enough data to predict
-            
-#         model = LinearRegression()
-#         X = country_data[['time_index']]
-#         y = country_data['metric']
-        
-#         model.fit(X, y)
-        
-#         # 3. Create Future Time Index
-#         last_day = country_data['time_index'].max()
-#         # Create input for the next N weeks (7 days * N weeks)
-#         future_days = np.array([last_day + (i * 7) for i in range(1, weeks_to_predict + 1)]).reshape(-1, 1)
-        
-#         # 4. Predict
-#         predictions = model.predict(future_days)
-        
-#         # 5. Construct the prediction DataFrame
-#         future_dates = [country_data['week'].max() + pd.Timedelta(weeks=i) for i in range(1, weeks_to_predict + 1)]
-        
-#         temp_df = pd.DataFrame({
-#             'week': future_dates,
-#             'metric': predictions,
-#             'country': country,
-#             'type': 'Predicted' # Mark these as predictions
-#         })
-#         # Ensure no negative predictions (impossible to have negative jobs)
-#         temp_df['metric'] = temp_df['metric'].clip(lower=0)
-        
-#         future_preds.append(temp_df)
-
-#     # 6. Combine History (Actual) and Future (Predicted)
-#     df['type'] = 'Actual'
-#     if future_preds:
-#         return pd.concat([df[['week', 'metric', 'country', 'type']], pd.concat(future_preds)])
-#     return df
-
-def visualize_weekly_data(data):
+def visualize_weekly_data(data, granularity='weekly'):
     """
-    Visualize weekly job postings by country.
-    :param data: Aggregated DataFrame with weekly job postings.
+    Visualize temporal job postings by country.
     """
-    # 1. Ensure 'week' is actual datetime objects (Crucial for the x-axis to look good)
-    data['week'] = pd.to_datetime(data['week'])
+    data['period'] = pd.to_datetime(data['period'])
+    config = DEFAULT_CONFIG[granularity]
+    period_name = config['PERIOD_NAME'].capitalize()
 
-    # Calculate the total jobs per week across all countries
-    weekly_totals = data.groupby('week')['metric'].sum().reset_index()
+    period_totals = data.groupby('period')['metric'].sum().reset_index()
+    active_periods = period_totals[period_totals['metric'] > config['DATA_START_THRESHOLD'] * 2]['period']
     
-    # Find the first week where we have significant data (e.g., > 10 jobs total)
-    # This automatically finds where the "spike" starts
-    active_weeks = weekly_totals[weekly_totals['metric'] > 100]['week']
-    
-    if not active_weeks.empty:
-        start_date = active_weeks.min()
-        # Filter the main dataframe to only show data after that start date
-        data = data[data['week'] >= start_date]
+    if not active_periods.empty:
+        start_date = active_periods.min()
+        data = data[data['period'] >= start_date]
 
     fig = px.area(
         data,
-        x="week",
+        x="period",
         y="metric",
         color="country",
-        title="Weekly Job Postings by Country",
-        labels={"week": "Week", "metric": "Job Postings", "country": "Country"},
+        title=f"{period_name}ly Job Postings by Country",
+        labels={"period": period_name, "metric": "Job Postings", "country": "Country"},
     )
     st.plotly_chart(fig, use_container_width=True)
     
 def run():
     st.title("📈 Predictive Insights")
 
-    # ---------------- SETTINGS ----------------
     TABLE = os.getenv("CASSANDRA_TABLE", "jobs")
-    #LOOKBACK_MINUTES = 60
 
-    st.write("Content for Predictive Insights page coming soon...")
 
-    # ---------------- VALIDATE KEYSPACE ----------------
     keyspace_exists, error_msg = validate_keyspace()
     if not keyspace_exists:
         st.error(f"❌ **Database Connection Error**")
@@ -379,6 +318,18 @@ def run():
         """)
         st.stop()
 
+    # ---------------- TIME GRANULARITY SELECTOR ----------------
+    st.subheader("⏱️ Forecast Granularity")
+    granularity = st.radio(
+        "Select time period for forecasting:",
+        ["weekly", "daily"],
+        horizontal=True,
+        help="Choose whether to forecast by weeks or days"
+    )
+    
+    config = DEFAULT_CONFIG[granularity]
+    period_name = config['PERIOD_NAME'].capitalize()
+
     # ---------------- MODE SELECTOR ----------------
     st.subheader("📊 View Mode")
     
@@ -389,16 +340,16 @@ def run():
     )
 
     st.title("📊 Phase 2: AI Job Market Forecasting")
-    st.markdown("""
+    st.markdown(f"""
     This module implements **Recursive Multi-step Forecasting** using a **Random Forest Ensemble**.
     * **Scientific Approach:** Uses lag features and time-series cross-validation.
-    * **Data Filter:** Automatically detects the "significant start" of data (>{DATA_START_THRESHOLD} jobs/week) to ignore pre-collection noise.
+    * **Granularity:** {period_name}ly forecasts for {config['FORECAST_HORIZON']} periods ahead
+    * **Data Filter:** Automatically detects the "significant start" of data (>{config['DATA_START_THRESHOLD']} jobs/{config['PERIOD_NAME']}) to ignore pre-collection noise.
     *Methodology Reference: Cerqueira, V. et al. "Machine Learning vs Statistical Methods for Time Series Forecasting".*
     """)
     
     # ---------------- FETCH DATA BASED ON MODE ----------------
     if mode == "📁 View Existing Database":
-        # 3. Load Data
         with st.spinner('Fetching data from Cassandra...'):
             df_raw = fetch_all()
         
@@ -406,149 +357,135 @@ def run():
             st.warning("⚠️ No data found in the database. Start the producer to ingest data.")
             st.stop()
         
-         # ---------------- PREPROCESS DATA ----------------
         st.write("Preprocessing data...")
         df = preprocess_data(df_raw)
         
-        
-        # 4. Preprocessing
-        df_weekly = preprocess_weekly_data(df_raw)
-        if df_weekly.empty:
+        df_temporal = preprocess_temporal_data(df_raw, config)
+        if df_temporal.empty:
             st.error("Data processing failed. Ensure data has valid dates and countries.")
             st.stop()
-        st.write(df_weekly.head())
+        st.write(df_temporal.head())
         
-        # ---------------- VISUALIZE DATA ----------------
-        #!!! st.write("Visualizing weekly job postings...")
-        df['week'] = df['created_at'].dt.to_period('W').apply(lambda r: r.start_time)
-        weekly_data = df.groupby(['week', 'country'], as_index=False).agg({'metric': 'sum'})
+        # Prepare data for visualization
+        df['period'] = df['created_at'].dt.to_period('W').apply(lambda r: r.start_time) if granularity == 'weekly' else df['created_at'].dt.floor('D')
+        temporal_data = df.groupby(['period', 'country'], as_index=False).agg({'metric': 'sum'})
 
-        # 5. UI Controls
-        all_countries = sorted(df_weekly['country'].unique())
-        # Default to top 3 countries by volume
-        top_countries = df_weekly.groupby('country')['job_count'].sum().nlargest(3).index.tolist()
+        all_countries = sorted(df_temporal['country'].unique())
+        #the ones with most jobs top_countries = df_temporal.groupby('country')['job_count'].sum().nlargest(3).index.tolist()
+        # Calculate RMSE for each country to find best predictions
+        country_rmse = {}
+    
+        for country in all_countries:
+            country_df = df_temporal[df_temporal['country'] == country].sort_values('period')
+        
+            if len(country_df) < config['MIN_PERIODS_REQUIRED']:
+                continue
+        
+            try:
+                df_features = create_lag_features(country_df, config)
+                train, val, test = split_data_time_series(df_features, config)
+            
+                if train.empty or test.empty:
+                    continue
+            
+                model = train_model(train, config)
+                rmse, mae, test_preds = evaluate_model(model, test, config)
+            
+                # Only include countries with meaningful predictions (average > 0)
+                if rmse is not None and test_preds is not None:
+                    avg_prediction = np.mean(test_preds)
+                    avg_actual = test['job_count'].mean()
+                
+                    # Filter: require average predictions > 0 and average actual values > threshold
+                    if avg_prediction > 0 and avg_actual > config['DATA_START_THRESHOLD']:
+                        country_rmse[country] = rmse
+            except Exception as e:
+                continue
+        
+        # Select top 3 countries with lowest RMSE (best predictions)
+        if country_rmse:
+            top_countries = sorted(country_rmse.items(), key=lambda x: x[1])[:5]
+            top_countries = [country for country, rmse in top_countries]
+        else:
+            # Fallback to countries with most jobs if no RMSE calculated
+            top_countries = df_temporal.groupby('country')['job_count'].sum().nlargest(3).index.tolist()
 
-        # # Initialize with a safe default to avoid unbound local variable
-        #selected_countries = top_countries
-
-        col1, col2 = st.columns([3, 1]) # Create columns for better layout
-        # with col1:
-        #     selected_countries = st.multiselect(
-        #         "Select Countries to Analyze:",
-        #         options=all_countries,
-        #         default=top_countries,
-        #         key="hist_country_select"  # <--- Added this unique key
-        #     )
-        # with col2:
-        #     st.metric("Total Jobs Analyzed", len(df_raw))
-
-        # if not selected_countries:
-        #     st.info("Please select a country to generate predictions.")
-        #     st.stop()
+        col1, col2 = st.columns([3, 1])
         
         with col2:
-            # The Checkbox (Placed to the right or top)
             select_all = st.checkbox("Select All Countries")
 
         with col1:
             if select_all:
-                # If checked, we disable the box and select everything
                 selected_countries = all_countries
                 st.info(f"✅ Displaying all {len(all_countries)} countries.")
             else:
-                # Otherwise, show the picker
                 selected_countries = st.multiselect(
                     "Select Countries to Compare:",
                     options=all_countries,
                     default=top_countries
                 )
 
-        #4. Filter the data based on selection
         if not selected_countries:
             st.warning("⚠️ Please select at least one country to view the plot.")
         else:
-            filtered_data = weekly_data[weekly_data['country'].isin(selected_countries)]
-            
-            # Pass ONLY the filtered data to your plotting function
-            visualize_weekly_data(filtered_data)
+            filtered_data = temporal_data[temporal_data['country'].isin(selected_countries)]
+            visualize_weekly_data(filtered_data, granularity)
+            # Display RMSE ranking for transparency
+            if country_rmse:
+                with st.expander("📊 View Prediction Accuracy by Country"):
+                    rmse_df = pd.DataFrame(
+                        sorted(country_rmse.items(), key=lambda x: x[1]),
+                        columns=['Country', 'RMSE']
+                    )
+                    rmse_df['Rank'] = range(1, len(rmse_df) + 1)
+                    st.dataframe(
+                        rmse_df[['Rank', 'Country', 'RMSE']].style.format({'RMSE': '{:.2f}'}),
+                        hide_index=True
+                    )
+                    st.caption("Lower RMSE = More accurate predictions")
 
-        # 6. Analysis Loop
         for country in selected_countries:
             st.markdown(f"### 🏳️ {country}") 
-            # Filter Data
-            country_df = df_weekly[df_weekly['country'] == country].sort_values('week')
-
-            # Need enough data for lags (4) + test (4) + val (4) + train (at least 4) = 16 weeks
-            # We relax this slightly for demo purposes, but warn the user.
-            MIN_WEEKS_REQUIRED = 12 
+            country_df = df_temporal[df_temporal['country'] == country].sort_values('period')
         
-            if len(country_df) < MIN_WEEKS_REQUIRED:
-                st.warning(f"Not enough historical data for **{country}** to train a reliable AI model (Need {MIN_WEEKS_REQUIRED}+ weeks, found {len(country_df)}). Showing raw trend only.")
-                st.line_chart(country_df.set_index('week')['job_count'])
+            if len(country_df) < config['MIN_PERIODS_REQUIRED']:
+                st.warning(f"Not enough historical data for **{country}** to train a reliable AI model (Need {config['MIN_PERIODS_REQUIRED']}+ {config['PERIOD_NAME']}s, found {len(country_df)}). Showing raw trend only.")
+                st.line_chart(country_df.set_index('period')['job_count'])
                 continue
 
-            # Feature Engineering
-            df_features = create_lag_features(country_df, LAG_FEATURES)
-        
-            # Split
-            train, val, test = split_data_time_series(df_features)
+            df_features = create_lag_features(country_df, config)
+            train, val, test = split_data_time_series(df_features, config)
+            
             if train.empty:
                 st.error("Insufficient data for training split.")
                 continue
-            # Train
-            model = train_model(train)
-        
-            # Evaluate
-            rmse, mae, test_preds = evaluate_model(model, test)
-        
-        # # Future Forecast
-        # # Get the very last window of known data (from test set)
-        # last_window = df_features.iloc[-1][[f'lag_{l}' for l in LAG_FEATURES]].values
-        # future_preds = recursive_forecast(model, last_window, FORECAST_HORIZON)
-        
-        # # Metrics Display
-        # m1, m2, m3 = st.columns(3)
-        # m1.metric("Model RMSE (Error)", f"{rmse:.2f}", help="Lower is better")
-        # m2.metric("Next Week Prediction", f"{int(future_preds[0])}", delta=f"{int(future_preds[0] - country_df.iloc[-1]['job_count'])}")
-        # m3.metric("12-Week Trend", "Growth" if future_preds[-1] > future_preds[0] else "Decline")
-        
-        # # Visualize
-        # fig = visualize_results(country, train, val, test, test_preds, future_preds, rmse)
-        # st.plotly_chart(fig, use_container_width=True)
-        
-        # with st.expander(f"View Detailed Data for {country}"):
-        #     st.dataframe(country_df.tail(10))
+                
+            model = train_model(train, config)
+            rmse, mae, test_preds = evaluate_model(model, test, config)
 
-            # Future Forecast
-            # Get the very last window of known data (from test set or validation set)
             last_known_data = pd.concat([train, val, test]).iloc[-1]
-            last_window = last_known_data[[f'lag_{l}' for l in LAG_FEATURES]].values
+            last_window = last_known_data[[f'lag_{l}' for l in config['LAG_FEATURES']]].values
+            future_preds = recursive_forecast(model, last_window, config)
         
-            future_preds = recursive_forecast(model, last_window, FORECAST_HORIZON)
-        
-            # Metrics Display
             m1, m2, m3 = st.columns(3)
             m1.metric("Model RMSE (Accuracy)", f"{rmse:.2f}", help="Root Mean Squared Error. Lower is better.")
         
-            next_week_pred = int(future_preds[0])
+            next_period_pred = int(future_preds[0])
             current_val = int(country_df.iloc[-1]['job_count'])
-            delta = next_week_pred - current_val
+            delta = next_period_pred - current_val
         
-            m2.metric("Next Week Prediction", f"{next_week_pred}", delta=delta)
+            m2.metric(f"Next {period_name} Prediction", f"{next_period_pred}", delta=delta)
         
             trend = "📈 Growth" if future_preds[-1] > future_preds[0] else "📉 Decline"
-            m3.metric("12-Week Forecast Trend", trend)
+            m3.metric(f"{config['FORECAST_HORIZON']}-{period_name} Forecast Trend", trend)
         
-            # Visualize
-            fig = visualize_results(country, train, val, test, test_preds, future_preds, rmse)
+            fig = visualize_results(country, train, val, test, test_preds, future_preds, rmse, config)
             st.plotly_chart(fig, use_container_width=True)
         
             with st.expander(f"View Training Data for {country}"):
                 st.dataframe(country_df.tail(10))
 
-    # ---------------------------
-    # MODE 2: REAL-TIME MONITOR
-    # ---------------------------
     else:  # Real-time Streaming Mode
         st_autorefresh(interval=3000, key="predictive_insights_refresh")
         
@@ -559,72 +496,43 @@ def run():
             st.info("Waiting for streaming data...")
             st.stop()
         
-        #dfog = preprocess_data(df_raw)
-        
-        # if df.empty:
-        #     st.warning("⚠️ No European country data in recent stream.")
-        #     st.stop()
-        # Preprocessing for Stream
-        df = df_raw.copy()
-        #dfog['created_at'] = pd.to_datetime(dfog['created_at'])
-        df = preprocess_data(df)
-        df['week'] = df['created_at'].dt.to_period('W').apply(lambda r: r.start_time)
-        weekly_data = df.groupby(['week', 'country'], as_index=False).agg({'metric': 'sum'})
-        #weekly_data = df.groupby(['week', 'country'], as_index=False).size().rename(columns={'size': 'metric'})
+        df = preprocess_data(df_raw)
+        df['period'] = df['created_at'].dt.to_period('W').apply(lambda r: r.start_time) if granularity == 'weekly' else df['created_at'].dt.floor('D')
+        temporal_data = df.groupby(['period', 'country'], as_index=False).agg({'metric': 'sum'})
 
-        # 2. Get list of countries & identify the Top 5 (for default selection)
-        all_countries = sorted(weekly_data['country'].unique())
-        
-        # Calculate top 5 countries by total volume so the chart isn't empty on load
+        all_countries = sorted(temporal_data['country'].unique())
         top_countries = df.groupby('country')['metric'].sum().nlargest(5).index.tolist()
-        # Ensure variable is defined before use to avoid UnboundLocalError
-        #top_countries_series = df.groupby('country').size()
-        #top_countries = top_countries_series.nlargest(5).index.tolist()
 
-        # # Initialize with a safe default to avoid unbound local variable
-        #selected_countries = top_countries
-
-        col1, col2 = st.columns([3, 1]) # Create columns for better layout
+        col1, col2 = st.columns([3, 1])
 
         with col2:
-            # The Checkbox (Placed to the right or top)
             select_all = st.checkbox("Select All Countries")
 
         with col1:
             if select_all:
-                # If checked, we disable the box and select everything
                 selected_countries = all_countries
                 st.info(f"✅ Displaying all {len(all_countries)} countries.")
             else:
-                # Otherwise, show the picker
                 selected_countries = st.multiselect(
                     "Select Countries to Compare:",
                     options=all_countries,
                     default=top_countries
                 )
 
-        # 4. Filter the data based on selection
         if not selected_countries:
             st.warning("⚠️ Please select at least one country to view the plot.")
         else:
-            filtered_data = weekly_data[weekly_data['country'].isin(selected_countries)]
-            # Filter
-            #filtered_df = dfog[df['country'].isin(selected_countries)]
-            
-            # KPI Header
-            # k1, k2, k3 = st.columns(3)
-            # k1.metric("Live Jobs (1h)", len(df_raw))
-            # k2.metric("Active Countries", len(all_countries))
-            # k3.caption(f"Last Update: {datetime.now().strftime('%H:%M:%S')}")
-            # # Visualize Flow
-            # visualize_streaming_data(df)
-            
-            # with st.expander("Raw Stream Data"):
-            #     st.dataframe(df_filtered.sort_values('created_at', ascending=False).head(20))
-        st.success(f"🔴 LIVE: {len(df_raw)} jobs")
-        st.caption(f"Last refresh: {datetime.now().strftime('%H:%M:%S')}")
+            filtered_data = temporal_data[temporal_data['country'].isin(selected_countries)]
+            st.success(f"🔴 LIVE: {len(df_raw)} jobs")
+            st.caption(f"Last refresh: {datetime.now().strftime('%H:%M:%S')}")
     
-        visualize_weekly_data(filtered_data)
+            visualize_weekly_data(filtered_data, granularity)
+            
+            df_stream = df_raw.copy()
+            df_stream['created_at'] = pd.to_datetime(df_stream['created_at'])
+            fig = px.histogram(df_stream, x="created_at", color="country", nbins=60, title="Ingestion Velocity (Events/Minute)")
+            fig.update_layout(template="plotly_dark")
+            st.plotly_chart(fig, use_container_width=True)
+        
     st.divider()
-
     add_footer("Tibor Buti")
