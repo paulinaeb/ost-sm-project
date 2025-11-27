@@ -49,6 +49,13 @@ European geographic job distribution analysis:
 - **Job Distribution**: Most common job titles per country
 - **Real-time Updates**: Auto-refresh with configurable lookback period
 - **Country Focus**: Filters for European countries with ISO-3 code mapping
+
+**Academic Context:**  
+The work by Ogryzek & Jaskulski (2025) inspired the development of the Country Radar because it demonstrates how spatial visualisation tools—especially choropleth maps—effectively reveal labour-market patterns across regions. Their use of GIS to map unemployment showed how geographic dashboards can make complex job-market data clearer and easier to compare.
+
+**Reference:**  
+Ogryzek, M., & Jaskulski, M. (2025). Applying methods of exploratory data analysis and methods of modeling the unemployment rate in spatial terms in Poland. Applied Sciences, 15(8), 4136. https://doi.org/10.3390/app15084136 
+
 Author: Paulina
 
 ### 📈 Predictive Insights 
