@@ -1,5 +1,7 @@
 # LinkedIn Jobs Real-Time Streaming Pipeline
 
+**Author:** Paulina Espejo
+
 This directory contains the Kafka-based streaming pipeline for real-time ingestion of LinkedIn job postings into Cassandra.
 
 ## Architecture
