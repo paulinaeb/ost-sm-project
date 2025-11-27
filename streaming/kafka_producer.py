@@ -15,7 +15,7 @@ if sys.platform == 'win32':
     sys.stdout.reconfigure(encoding='utf-8')
 
 # Configuration
-KAFKA_BOOTSTRAP_SERVERS = ['localhost:29092']
+KAFKA_BOOTSTRAP_SERVERS = os.getenv('KAFKA_BOOTSTRAP_SERVERS', 'localhost:9092')
 KAFKA_TOPIC = 'linkedin-jobs'
 CSV_FILE_PATH = os.path.join(os.path.dirname(__file__), '..', 'dynamic_dataset', 'cleaned_linkedin_jobs.csv')
 
