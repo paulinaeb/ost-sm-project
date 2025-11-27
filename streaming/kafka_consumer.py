@@ -8,16 +8,17 @@ from kafka.errors import KafkaError
 from cassandra.cluster import Cluster
 from cassandra.query import SimpleStatement
 from datetime import datetime
+import os
 
 # Fix Windows console encoding for Unicode characters
 if sys.platform == 'win32':
     sys.stdout.reconfigure(encoding='utf-8')
 
 # Configuration
-KAFKA_BOOTSTRAP_SERVERS = ['localhost:29092']
+KAFKA_BOOTSTRAP_SERVERS = os.getenv('KAFKA_BOOTSTRAP_SERVERS', 'localhost:29092')
 KAFKA_TOPIC = 'linkedin-jobs'
 KAFKA_GROUP_ID = 'linkedin-jobs-consumer-group'
-CASSANDRA_CONTACT_POINTS = ['127.0.0.1']
+CASSANDRA_CONTACT_POINTS = os.getenv('CASSANDRA_HOSTS', '127.0.0.1').split(',')
 CASSANDRA_KEYSPACE = 'linkedin_jobs'  # Separate database for streaming data
 CASSANDRA_TABLE = 'jobs'
 
