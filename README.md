@@ -10,11 +10,12 @@ The system leverages open-source technologies to identify **regional trends**, *
 ```
 CSV File → Kafka Producer → Kafka Topic → Kafka Consumer → Cassandra  → Streamlit Live Dashboard.
               ↓                 ↓                            ↓
-        (simulates      (KRaft mode -               (linkedin_jobs_db)
-         real-time)     no ZooKeeper)               (separate database)
+        (simulates      (KRaft mode -               (linkedin_jobs)
+         real-time)     no ZooKeeper)                   (ecsf)
          
          PARALLEL EXECUTION: Producer & Consumer run simultaneously
 ```
+Its technical design follows the streaming-pipeline principles described by Narkhede et al. (2017), using Apache Kafka for real-time ingestion and Apache Cassandra for scalable, reliable data storage.
 
 ---
 
@@ -22,7 +23,7 @@ CSV File → Kafka Producer → Kafka Topic → Kafka Consumer → Cassandra  �
 
 ### 0. Clone the Repository
 ```bash
-git clone <https://github.com/paulinaeb/ost-sm-project.git>
+git clone https://github.com/paulinaeb/ost-sm-project.git
 cd ost-sm-project
 ```
 
@@ -94,36 +95,19 @@ Access it at http://localhost:8501 after starting the services.
 
 The dashboard features horizontal navigation with the following sections:
 
-| Tab | Description |
-|-----|-------------|
-| **📈 Dashboard** | Real-time streaming overview with live job ingestion monitoring, time-based aggregations, and quick statistics |
-| **🌍 Country Radar** | European job market analysis with interactive visualizations (see below) |
-| **📈 Predictive Insights** | Market trend forecasting and predictions *(coming soon)* |
-| **🔍 Matching Tracker** | Job-skill matching and recommendation system *(coming soon)* |
-| **📡 Change Detector** | Real-time anomaly detection and market shifts *(coming soon)* |
+| Tab | Description | Author |
+|-----|-------------|--------|
+| **📈 Dashboard** | Real-time streaming overview with live job ingestion monitoring, time-based aggregations, and quick statistics | Ahad |
+| **🌍 Country Radar** | European job market analysis with interactive visualizations | Paulina |
+| **📈 Predictive Insights** | Market trend forecasting and predictions | Tibor |
+| **🔍 Matching Tracker** | Job-skill matching and recommendation system | Sameha |
+| **📡 Change Detector** | Real-time anomaly detection and market shifts | Ahad |
 
-### Country Radar Visualizations
-
-The **Country Radar** tab offers comprehensive European cybersecurity job market insights:
-
-1. **🗺️ Interactive Choropleth Map**
-   - Displays job distribution across European countries
-   - Color-coded by job frequency (darker = more jobs)
-   - Hover to see: country name, job count, and most common job title
-
-2. **🎯 Top Jobs by Country**
-   - Horizontal bar chart showing top 10 job titles
-   - Country-specific metrics: total jobs, companies, job titles, and skills
-   - Expandable table with recent job postings
-
-3. **🌍 Top European Countries Ranking**
-   - Bar chart of top 10 countries by job volume
-   - Percentage distribution breakdown
-   - Real-time statistics: total jobs across all countries
+The Country Radar builds on insights from Ogryzek & Jaskulski (2025), whose GIS-based choropleth mapping shows how spatial visualisation can clarify regional labour-market patterns.
 
 All visualizations support dual modes:
 - **Database Mode**: Historical data analysis
-- **Streaming Mode**: Real-time updates with 3-second refresh (auto-refresh enabled)
+- **Streaming Mode**: Real-time updates with N-second refresh (auto-refresh enabled)
 
 ---
 
@@ -136,7 +120,24 @@ All visualizations support dual modes:
 
 ---
 
+## 👥 Team Contributions
+
+| Name | Nationality | Role & Responsibilities |
+|------|-------------|------------------------|
+| **Nasser Samiha** 🇸🇾 | Syrian | **Data Preprocessing & Matching Tracker**<br/>• Cleaned ECSF and LinkedIn datasets and stored ECSF in Cassandra<br/>• Built fuzzy matching pipeline for job-skill alignment<br/>• Developed ECSF/Jobs matching visualization dashboard |
+| **Espejo Paulina** 🇻🇪 | Venezuelan | **Stream Mining & Country Radar**<br/>• Implemented Kafka producer/consumer for real-time job simulation and its storage to Cassandra<br/>• Designed European job market geographic visualization dashboard<br/>• Initiated containerization with Docker compose
+| **Ahad Rezaul Khan** 🇧🇩 | Bangladesh | **Real-time Dashboard & Change Detection**<br/>• Created live streaming dashboard with auto-refresh<br/>• Implemented batch analytics and forecasting models<br/>• Built anomaly detection for market shifts |
+| **Buti Tibor** 🇭🇺 | Hungarian | **Deployment & Predictive Insights**<br/>• Created comprehensive pipeline for deployment <br/>• Developed time-series forecasting dashboard |
+
+---
+
 ## 👩‍💻 Maintainers
 
 **Europe CyberScope Team**  
 Contributions and issue reports are welcome — please open a GitHub issue or submit a pull request.
+
+
+**Reference:**  
+Narkhede, N., Shapira, G., & Palino, T. (2017). *Kafka: The definitive guide: Real-time data and stream processing at scale*. O'Reilly Media.
+
+Ogryzek, M., & Jaskulski, M. (2025). Applying methods of exploratory data analysis and methods of modeling the unemployment rate in spatial terms in Poland. Applied Sciences, 15(8), 4136. https://doi.org/10.3390/app15084136 

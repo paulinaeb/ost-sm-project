@@ -1,5 +1,7 @@
 # LinkedIn Jobs Real-Time Streaming Pipeline
 
+**Author:** Paulina Espejo
+
 This directory contains the Kafka-based streaming pipeline for real-time ingestion of LinkedIn job postings into Cassandra.
 
 ## Architecture
@@ -12,6 +14,7 @@ CSV File → Kafka Producer → Kafka Topic → Kafka Consumer → Cassandra
          
          PARALLEL EXECUTION: Producer & Consumer run simultaneously
 ```
+Its technical design follows the streaming-pipeline principles described by Narkhede et al. (2017), using Apache Kafka for real-time ingestion and Apache Cassandra for scalable, reliable data storage.
 
 **Technology Stack:**
 - **Kafka in KRaft mode**: Modern ZooKeeper-free Kafka for simplified architecture
@@ -21,6 +24,13 @@ CSV File → Kafka Producer → Kafka Topic → Kafka Consumer → Cassandra
 **Database Structure:**
 - `ecsf.*` - ECSF reference data (work roles, TKS, etc.)
 - `linkedin_jobs.jobs` - Streaming job postings (separate keyspace)
+
+## Academic Context
+
+This streaming architecture implements a distributed data pipeline using Apache Kafka for message queuing and Apache Cassandra for persistent storage, following established patterns for real-time data ingestion and processing. The architecture is based on principles described by Narkhede et al. (2017), who detail how Kafka-based streaming platforms enable scalable, fault-tolerant data pipelines that can handle high-throughput event streams while maintaining data consistency across distributed systems.
+
+**Reference:**  
+Narkhede, N., Shapira, G., & Palino, T. (2017). *Kafka: The definitive guide: Real-time data and stream processing at scale*. O'Reilly Media.
 
 ## Components
 
