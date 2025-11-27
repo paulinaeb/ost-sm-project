@@ -14,6 +14,7 @@ CSV File → Kafka Producer → Kafka Topic → Kafka Consumer → Cassandra
          
          PARALLEL EXECUTION: Producer & Consumer run simultaneously
 ```
+Its technical design follows the streaming-pipeline principles described by Narkhede et al. (2017), using Apache Kafka for real-time ingestion and Apache Cassandra for scalable, reliable data storage.
 
 **Technology Stack:**
 - **Kafka in KRaft mode**: Modern ZooKeeper-free Kafka for simplified architecture

@@ -15,6 +15,7 @@ CSV File → Kafka Producer → Kafka Topic → Kafka Consumer → Cassandra  �
          
          PARALLEL EXECUTION: Producer & Consumer run simultaneously
 ```
+Its technical design follows the streaming-pipeline principles described by Narkhede et al. (2017), using Apache Kafka for real-time ingestion and Apache Cassandra for scalable, reliable data storage.
 
 ---
 
@@ -102,6 +103,8 @@ The dashboard features horizontal navigation with the following sections:
 | **🔍 Matching Tracker** | Job-skill matching and recommendation system | Sameha |
 | **📡 Change Detector** | Real-time anomaly detection and market shifts | Ahad |
 
+The Country Radar builds on insights from Ogryzek & Jaskulski (2025), whose GIS-based choropleth mapping shows how spatial visualisation can clarify regional labour-market patterns.
+
 All visualizations support dual modes:
 - **Database Mode**: Historical data analysis
 - **Streaming Mode**: Real-time updates with N-second refresh (auto-refresh enabled)
@@ -132,3 +135,9 @@ All visualizations support dual modes:
 
 **Europe CyberScope Team**  
 Contributions and issue reports are welcome — please open a GitHub issue or submit a pull request.
+
+
+**Reference:**  
+Narkhede, N., Shapira, G., & Palino, T. (2017). *Kafka: The definitive guide: Real-time data and stream processing at scale*. O'Reilly Media.
+
+Ogryzek, M., & Jaskulski, M. (2025). Applying methods of exploratory data analysis and methods of modeling the unemployment rate in spatial terms in Poland. Applied Sciences, 15(8), 4136. https://doi.org/10.3390/app15084136 
