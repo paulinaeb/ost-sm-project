@@ -110,6 +110,60 @@ services:
       timeout: 10s
       retries: 3
 
+  kafka-producer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: csoma-streamlit:latest
+    container_name: kafka-producer
+    depends_on:
+      kafka-consumer:
+        condition: service_started
+      kafka:
+        condition: service_healthy
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+    command: python streaming/kafka_producer.py
+    restart: "no"  # run once and exit
+    networks:
+      - cassandra-net
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"from kafka import KafkaProducer; KafkaProducer(bootstrap_servers='kafka:9092')\" || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    profiles:
+      - streaming  # Only start when explicitly requested
+
+  kafka-consumer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: csoma-streamlit:latest
+    container_name: kafka-consumer
+    depends_on:
+      kafka:
+        condition: service_healthy
+      cassandra-dev:
+        condition: service_healthy
+    environment:
+      - CASSANDRA_HOSTS=cassandra-dev
+      - CASSANDRA_PORT=9042
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+    command: python streaming/kafka_consumer.py
+    restart: "no"  # run once and exit
+    networks:
+      - cassandra-net
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"from cassandra.cluster import Cluster; cluster = Cluster(['cassandra-dev']); session = cluster.connect(); session.execute('DESCRIBE KEYSPACE linkedin_jobs')\" || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    profiles:
+      - streaming  # Only start when explicitly requested
+
 
 
 volumes:
