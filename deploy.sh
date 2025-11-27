@@ -4,12 +4,14 @@
 set -Eeuo pipefail
 
 COMPOSE_FILE="docker-compose.yml"
-KEYSPACE="linkedin_jobs"
+LINKEDIN_KEYSPACE="linkedin_jobs"
+LINKEDIN_TABLE="jobs"
 CASSANDRA_CONTAINER="cassandra-dev"
 KAFKA_CONTAINER="kafka"
 APP_CONTAINER="python-app"
 STREAMLIT_URL="http://localhost:8501"
 SCHEMA_FILE="preprocessing/ECSF/keyspace_tables_creation.sql"
+ECSF_KEYSPACE="ecsf"
 
 have() { command -v "$1" >/dev/null 2>&1; }
 
@@ -55,22 +57,22 @@ main() {
   $COMPOSE -f "$COMPOSE_FILE" pull cassandra-dev kafka kafka-ui cassandra-web
 
   echo "[4/7] Starting services..."
-  $COMPOSE -f "$COMPOSE_FILE" up -d
+  $COMPOSE -f "$COMPOSE_FILE" up -d cassandra-dev kafka kafka-ui cassandra-web python-app
 
   echo "[5/7] Waiting for dependencies..."
   wait_health "$CASSANDRA_CONTAINER" 300
   wait_health "$KAFKA_CONTAINER" 300
 
-  # Give Cassandra extra time to fully initialize
-  echo "Waiting for Cassandra to be fully ready..."
-  sleep 10
+   # Give Cassandra extra time to fully initialize
+   echo "Waiting for Cassandra to be fully ready..."
+   sleep 10
 
-  echo "[6/7] Initializing Cassandra schema (idempotent)..."
-  if docker exec -i "$CASSANDRA_CONTAINER" cqlsh -e "DESCRIBE KEYSPACE $KEYSPACE" >/dev/null 2>&1; then
-    echo "Keyspace '$KEYSPACE' already exists. Skipping schema init."
+  echo "[6/7] Initializing Cassandra schema (ECSF keyspace)..."
+  
+  if docker exec -i "$CASSANDRA_CONTAINER" cqlsh -e "DESCRIBE KEYSPACE $ECSF_KEYSPACE" >/dev/null 2>&1; then
+    echo "Keyspace '$ECSF_KEYSPACE' already exists."
   else
     if [ -f "$SCHEMA_FILE" ]; then
-      # Retry schema init up to 3 times (Cassandra may still be initializing)
       for i in 1 2 3; do
         echo "Attempting schema init (try $i/3)..."
         if docker exec -i "$CASSANDRA_CONTAINER" cqlsh < "$SCHEMA_FILE" 2>/dev/null; then
@@ -86,35 +88,87 @@ main() {
           fi
         fi
       done
-      echo "Loading ECSF data..."
-      # Get the actual network name created by compose (includes project prefix)
-      NETWORK_NAME=$($COMPOSE -f "$COMPOSE_FILE" ps -q cassandra-dev | xargs docker inspect -f '{{range .NetworkSettings.Networks}}{{.NetworkID}}{{end}}' | head -1 | xargs docker network inspect -f '{{.Name}}')
-      
-      docker run --rm --network "$NETWORK_NAME" \
-        -e CASSANDRA_HOSTS=cassandra-dev \
-        -e CASSANDRA_PORT=9042 \
-        csoma-streamlit:latest \
-        python preprocessing/ECSF/load_ecsf.py
     else
       echo "WARNING: $SCHEMA_FILE not found. Skipping schema init."
     fi
   fi
+  echo "Checking if ECSF data already loaded..."
+  # Check if work_role_by_id table has data (adjust table name if needed)
+  # 1. Extract the specific number from the database (digits only)
+  # We use grep -o to get only numbers, and head -n 1 to take the first number (the count)
+  ROW_COUNT=$(docker exec -i "$CASSANDRA_CONTAINER" cqlsh --no-color -e "SELECT COUNT(*) FROM $ECSF_KEYSPACE.work_role_by_id LIMIT 10" 2>/dev/null | grep -o '[0-9]\+' | head -n 1)
 
-#   echo "[7/8] Loading ECSF data (if not already loaded)..."
-#   # Check if data exists (adjust query to your schema)
-#   if docker exec -i "$CASSANDRA_CONTAINER" cqlsh -e "SELECT COUNT(*) FROM $KEYSPACE.ecsf_jobs LIMIT 1" 2>/dev/null | grep -q "0 rows"; then
-#     echo "No ECSF data found. Loading..."
-#     docker exec -i "$CASSANDRA_CONTAINER" cqlsh < preprocessing/ECSF/load_ecsf.py  # if it's CQL
-#     # OR run Python script if it's a .py file:
-#     # docker run --rm --network cassandra-net -v "$(pwd):/app" python:3.11-slim \
-#     #   bash -c "pip install cassandra-driver && python /app/preprocessing/ECSF/load_ecsf.py"
-#   else
-#     echo "ECSF data already present. Skipping load."
-#   fi
+  # 2. Safety: If the connection failed and ROW_COUNT is empty, treat it as 0
+  ROW_COUNT=${ROW_COUNT:-0}
+
+  # 3. Numeric Check: Is ROW_COUNT less than (-lt) 10?
+  if [ "$ROW_COUNT" -lt 10 ]; then
+    echo "No ECSF data found. Loading..."
+    NETWORK_NAME=$($COMPOSE -f "$COMPOSE_FILE" ps -q cassandra-dev | xargs docker inspect -f '{{range .NetworkSettings.Networks}}{{.NetworkID}}{{end}}' | head -1 | xargs docker network inspect -f '{{.Name}}')
+    
+    docker run --rm --network "$NETWORK_NAME" \
+      -e CASSANDRA_HOSTS=cassandra-dev \
+      -e CASSANDRA_PORT=9042 \
+      -e CASSANDRA_KEYSPACE=ecsf \
+      csoma-streamlit:latest \
+      python preprocessing/ECSF/load_ecsf.py
+    echo "ECSF data loaded."
+  else
+    echo "ECSF data already present. Skipping load."
+  fi
+
+  echo "Checking if LinkedIn jobs data already loaded..."
+  LINKEDIN_KEYSPACE="linkedin_jobs"
+  LINKEDIN_TABLE="jobs"
+  
+  # Check if keyspace and table exist with data
+  if docker exec -i "$CASSANDRA_CONTAINER" cqlsh -e "SELECT COUNT(*) FROM $LINKEDIN_KEYSPACE.$LINKEDIN_TABLE LIMIT 1" 2>/dev/null | grep -q " 0 "; then
+    echo "No LinkedIn jobs data found. Starting streaming pipeline..."
+    
+    $COMPOSE -f "$COMPOSE_FILE" up -d kafka-consumer
+    echo "Waiting for Consumer to be fully ready..."
+    sleep 10
+    $COMPOSE -f "$COMPOSE_FILE" up -d kafka-producer
+    
+    
+    if [ "$(docker inspect -f '{{.State.ExitCode}}' kafka-producer)" != "0" ]; then
+      echo "ERROR: Producer failed."
+      docker logs kafka-producer
+      exit 1
+    fi
+    
+    if [ "$(docker inspect -f '{{.State.ExitCode}}' kafka-consumer)" != "0" ]; then
+      echo "ERROR: Consumer failed."
+      docker logs kafka-consumer
+      exit 1
+    fi
+    
+  elif docker exec -i "$CASSANDRA_CONTAINER" cqlsh -e "DESCRIBE TABLE $LINKEDIN_KEYSPACE.$LINKEDIN_TABLE" >/dev/null 2>&1; then
+    echo "LinkedIn jobs data already present. Skipping streaming pipeline."
+  else
+    echo "LinkedIn jobs keyspace/table doesn't exist. Starting consumer to create it..."
+    
+    $COMPOSE -f "$COMPOSE_FILE" up -d kafka-consumer
+    echo "Waiting for Consumer to be fully ready..."
+    sleep 10
+    $COMPOSE -f "$COMPOSE_FILE" up -d kafka-producer
+    
+    if [ "$(docker inspect -f '{{.State.ExitCode}}' kafka-producer)" != "0" ]; then
+      echo "ERROR: Producer failed."
+      docker logs kafka-producer
+      exit 1
+    fi
+    
+    if [ "$(docker inspect -f '{{.State.ExitCode}}' kafka-consumer)" != "0" ]; then
+      echo "ERROR: Consumer failed."
+      docker logs kafka-consumer
+      exit 1
+    fi
+  fi
 
   echo "[7/7] Waiting for Streamlit app..."
   wait_health "$APP_CONTAINER" 300
-
+  
   echo
   echo "All services are up:"
   echo "- Streamlit: $STREAMLIT_URL"
