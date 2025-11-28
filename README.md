@@ -31,7 +31,6 @@ cd ost-sm-project
 ```bash
 docker-compose up -d
 ```
-Wait for **All dependencies** to be running and healthy.
 
 ### 2. Set Up Python Environment
 ```bash
@@ -70,6 +69,98 @@ python streaming\kafka_producer.py
 
 # If you wish to start stream mining again, run the following command to truncate the dynamic database
 docker exec -it cassandra-dev cqlsh -e "TRUNCATE linkedin_jobs.jobs;"
+```
+
+### 6. Running in Two Modes (Docker vs Local)
+
+The producer and consumer now auto-adapt to the environment:
+
+- They first honor an explicit environment variable `KAFKA_BOOTSTRAP_SERVERS` if set.
+- Otherwise they attempt to connect to `localhost:29092` (the Docker-mapped broker port on the host).
+- If that is unreachable, they fall back to `kafka:9092` (the internal Docker Compose service name).
+
+This means you can:
+
+| Mode | Command | Bootstrap selected |
+|------|---------|--------------------|
+| Local (host) | `python streaming\kafka_consumer.py` | `localhost:29092` (if reachable) |
+| Docker exec | `docker exec -it python-app python streaming/kafka_consumer.py` | `kafka:9092` |
+| Forced override | `$env:KAFKA_BOOTSTRAP_SERVERS='kafka:9092'` then run scripts | explicit value |
+
+To force a mode explicitly (Windows PowerShell):
+```powershell
+$env:KAFKA_BOOTSTRAP_SERVERS = 'localhost:29092'  # or 'kafka:9092'
+python streaming\kafka_producer.py
+```
+
+If you see timeouts from producer/consumer:
+1. Verify broker port: `Test-NetConnection -ComputerName localhost -Port 29092`
+2. Check container health: `docker ps` and `docker logs kafka --tail 50`
+3. Confirm topic exists in Kafka UI (http://localhost:8080) or create it.
+
+To restart streaming cleanly using scripts:
+```powershell
+./restart_simulation.ps1   # PowerShell
+```
+or
+```bash
+./restart_simulation.sh    # Bash
+```
+
+### 7. Environment Setup Tips (Windows)
+
+- Prefer Python 3.11 for local runs to match the Docker image.
+- Always activate your venv before running producer/consumer:
+```powershell
+python -m venv venv
+venv\Scripts\activate
+python -m pip install -r requirements.txt
+```
+- If you see `ModuleNotFoundError: cassandra` or Kafka import errors, ensure you're using the venv interpreter and reinstall with:
+```powershell
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+```
+Or simply with the automated deployment scripts:
+```bash
+# Bash (Linux/macOS/WSL)
+bash deploy.sh
+
+# PowerShell (Windows)
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned
+./deploy.ps1
+```
+Wait for **All dependencies** to be running and healthy. The deploy scripts will:
+- Build the app image
+- Start Kafka, Cassandra, UI services, and Streamlit
+- Initialize ECSF keyspace/tables and load data if needed
+- Ensure linkedin_jobs keyspace/table exist and start streaming pipeline
+
+### Automated Workflow (Recommended)
+
+Use these one-liners to get up and streaming fast:
+
+```bash
+# Linux/macOS/WSL
+bash deploy.sh
+```
+
+```powershell
+# Windows PowerShell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned
+.\deploy.ps1
+```
+
+Then, to reset and restart streaming:
+
+```bash
+# Linux/macOS/WSL
+bash restart_simulation.sh
+```
+
+```powershell
+# Windows PowerShell
+.\restart_simulation.ps1
 ```
 
 ---
