@@ -249,23 +249,21 @@ CREATE TABLE IF NOT EXISTS $LINKEDIN_KEYSPACE.$LINKEDIN_TABLE (
         $m2 = [regex]::Match($countOut, '(?m)^\s*(\d+)\s*$')
         if ($m2.Success) { $COUNT_OUTPUT = [int]$m2.Groups[1].Value } else { $COUNT_OUTPUT = Get-FirstNumberOrDefault -Text $countOut -Default 0 }
     } else { $COUNT_OUTPUT = 0 }
-    Write-Host "LinkedIn jobs row count detected: $COUNT_OUTPUT"
-    if ($COUNT_OUTPUT -le 3) {
-        Write-Host 'Few LinkedIn rows detected (<=3). Starting streaming pipeline...'
-        Invoke-Compose -Args @('-f', $COMPOSE_FILE, 'up', '-d', 'kafka-consumer')
-        Write-Host 'Waiting for Consumer to be fully ready...'
-        Start-Sleep -Seconds 10
-        Invoke-Compose -Args @('-f', $COMPOSE_FILE, 'up', '-d', 'kafka-producer')
-        if ((docker inspect -f '{{.State.ExitCode}}' 'kafka-producer') -ne '0') {
-            docker logs 'kafka-producer' | Write-Host
-            throw 'ERROR: Producer failed.'
-        }
-        if ((docker inspect -f '{{.State.ExitCode}}' 'kafka-consumer') -ne '0') {
-            docker logs 'kafka-consumer' | Write-Host
-            throw 'ERROR: Consumer failed.'
-        }
-    } else {
-        Write-Host "LinkedIn jobs data already present ($COUNT_OUTPUT rows). Skipping streaming pipeline."
+    Write-Host 'Resetting LinkedIn pipeline: truncate and restart consumer+producer...'
+    # Truncate jobs table for a clean start
+    docker exec -i $CASSANDRA_CONTAINER cqlsh -k $LINKEDIN_KEYSPACE -e "TRUNCATE $LINKEDIN_TABLE;" | Out-Null
+    Write-Host 'LinkedIn jobs table truncated.'
+    Invoke-Compose -Args @('-f', $COMPOSE_FILE, 'up', '-d', 'kafka-consumer')
+    Write-Host 'Waiting for Consumer to be fully ready...'
+    Start-Sleep -Seconds 10
+    Invoke-Compose -Args @('-f', $COMPOSE_FILE, 'up', '-d', 'kafka-producer')
+    if ((docker inspect -f '{{.State.ExitCode}}' 'kafka-producer') -ne '0') {
+        docker logs 'kafka-producer' | Write-Host
+        throw 'ERROR: Producer failed.'
+    }
+    if ((docker inspect -f '{{.State.ExitCode}}' 'kafka-consumer') -ne '0') {
+        docker logs 'kafka-consumer' | Write-Host
+        throw 'ERROR: Consumer failed.'
     }
 
     Write-Host '[7/7] Waiting for Streamlit app...'
