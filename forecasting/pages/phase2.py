@@ -8,8 +8,13 @@ from datetime import datetime, timedelta
 from streamlit_autorefresh import st_autorefresh
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_squared_error, mean_absolute_error
+import re
+try:
+    from xgboost import XGBRegressor
+except Exception:
+    XGBRegressor = None
 from footer_utils import add_footer
-from data_utils import fetch_recent, fetch_all
+from data_utils import fetch_recent, fetch_all, preprocess_temporal_data, build_work_mode_series, WORK_MODES
 from cassandra_client import validate_keyspace
 
 # --- CONFIGURATION ---
@@ -52,8 +57,8 @@ def preprocess_data(raw_data):
     :return: Processed DataFrame.
     """
     # Convert dates to datetime
-    raw_data['created_at'] = pd.to_datetime(raw_data['created_at'])
-    raw_data['ingested_at'] = pd.to_datetime(raw_data['ingested_at'])
+    raw_data['created_at'] = pd.to_datetime(raw_data['created_at'], errors='coerce', dayfirst=True, infer_datetime_format=True)
+    raw_data['ingested_at'] = pd.to_datetime(raw_data['ingested_at'], errors='coerce', dayfirst=True, infer_datetime_format=True)
 
     # Add a 'metric' column (e.g., count of jobs per week)
     raw_data['metric'] = 1  # Each row represents one job posting
@@ -62,49 +67,6 @@ def preprocess_data(raw_data):
 
 # --- PREPROCESSING & ML FUNCTIONS (BATCH LAYER) ---
 
-def preprocess_temporal_data(df, config):
-    """
-    Aggregates raw job data into specified time periods per country.
-    """
-    if df is None or df.empty:
-        return pd.DataFrame()
-
-    df = df.copy()
-    df['created_at'] = pd.to_datetime(df['created_at'])
-    
-    # Normalize to period based on granularity
-    if config['FREQ'] == 'W-MON':
-        df['period'] = df['created_at'].dt.to_period('W').apply(lambda r: r.start_time)
-    else:  # daily
-        df['period'] = df['created_at'].dt.floor('D')
-    
-    temporal_counts = df.groupby(['country', 'period']).size().reset_index(name='job_count')
-    
-    if temporal_counts.empty:
-        return pd.DataFrame()
-
-    max_date = temporal_counts['period'].max()
-    full_df = []
-
-    for country in temporal_counts['country'].unique():
-        country_data = temporal_counts[temporal_counts['country'] == country].sort_values('period')
-        
-        active_periods = country_data[country_data['job_count'] > config['DATA_START_THRESHOLD']]['period']
-        
-        if not active_periods.empty:
-            start_date = active_periods.min()
-            country_data = country_data[country_data['period'] >= start_date]
-        else:
-            start_date = country_data['period'].min()
-
-        country_data = country_data.set_index('period')
-        relevant_periods = pd.date_range(start=start_date, end=max_date, freq=config['FREQ'])
-        
-        country_data = country_data.reindex(relevant_periods, fill_value=0).reset_index().rename(columns={'index': 'period'})
-        country_data['country'] = country
-        full_df.append(country_data)
-        
-    return pd.concat(full_df, ignore_index=True)
 
 def create_lag_features(df, config):
     """
@@ -213,7 +175,7 @@ def visualize_results(country, train, val, test, test_preds, future_preds, rmse,
                 x=test['period'], 
                 y=test_preds,
                 mode='lines+markers',
-                name=f'Model Validation (RMSE: {rmse:.2f})',
+                name=f'Test Predictions (RMSE {rmse:.2f})',
                 line=dict(color='orange', dash='dot')
             ))    
 
@@ -243,36 +205,220 @@ def visualize_results(country, train, val, test, test_preds, future_preds, rmse,
     
     return fig
 
-# --- STREAMING FUNCTIONS (SPEED LAYER) ---
 
-def visualize_streaming_data(df):
-    """
-    Simple, fast visualization for real-time data monitoring.
-    """
+# --- WORK MODE CLASSIFICATION & FORECASTING ---
+
+
+
+def _add_time_features(df: pd.DataFrame, config: dict) -> pd.DataFrame:
+    df = df.copy()
+    p = pd.to_datetime(df['period'])
+    df['dow'] = p.dt.weekday
+    df['week'] = p.dt.isocalendar().week.astype(int)
+    df['month'] = p.dt.month
+    return df
+
+def _future_dates(last_date: pd.Timestamp, horizon: int, unit: str):
+    if unit == 'weeks':
+        return [last_date + timedelta(weeks=i+1) for i in range(horizon)]
+    return [last_date + timedelta(days=i+1) for i in range(horizon)]
+
+def forecast_work_mode_trends_ml(series_df: pd.DataFrame, config: dict):
+    forecasts = {}
+    if series_df.empty:
+        return forecasts
+    horizon = config['FORECAST_HORIZON']
+    for mode in WORK_MODES:
+        s = series_df[series_df['work_mode'] == mode].sort_values('period')
+        if len(s) < max(10, len(config['LAG_FEATURES']) + config['VAL_SIZE'] + config['TEST_SIZE'] + 2):
+            continue
+        # Prepare features
+        s2 = s.rename(columns={'count': 'job_count'})[['period', 'job_count']]
+        s2 = create_lag_features(s2, config)
+        s2 = _add_time_features(s2, config)
+        train, val, test = split_data_time_series(s2, config)
+        if train.empty or test.empty:
+            continue
+        feature_cols = [f'lag_{l}' for l in config['LAG_FEATURES']] + ['dow', 'week', 'month']
+        X_train, y_train = train[feature_cols], train['job_count']
+        X_test, y_test = test[feature_cols], test['job_count']
+        # Model: XGBoost if available, else RandomForest fallback
+        if XGBRegressor is not None:
+            model = XGBRegressor(
+                n_estimators=300,
+                max_depth=6,
+                learning_rate=0.05,
+                subsample=0.9,
+                colsample_bytree=0.8,
+                objective='reg:squarederror',
+                random_state=42,
+                n_jobs=2
+            )
+        else:
+            model = RandomForestRegressor(n_estimators=200, max_depth=12, random_state=42)
+        model.fit(X_train, y_train)
+        preds = model.predict(X_test)
+        rmse = float(np.sqrt(mean_squared_error(y_test, preds)))
+        # Recursive multi-step forecast with time features
+        hist = pd.concat([train, val, test]).sort_values('period')
+        last_row = hist.iloc[-1]
+        current_lags = [last_row[f'lag_{l}'] for l in config['LAG_FEATURES']]
+        last_date = pd.to_datetime(hist['period']).max()
+        future_dates = _future_dates(last_date, horizon, config['TIMEDELTA_UNIT'])
+        future_preds = []
+        for d in future_dates:
+            tf = pd.DataFrame({'period': [d]})
+            tf = _add_time_features(tf, config)
+            feats = current_lags + [int(tf['dow'].iloc[0]), int(tf['week'].iloc[0]), int(tf['month'].iloc[0])]
+            yhat = float(model.predict(np.array(feats).reshape(1, -1))[0])
+            yhat = max(0.0, yhat)
+            future_preds.append(yhat)
+            # update lags
+            current_lags = [yhat] + current_lags[:-1]
+        forecasts[mode] = (future_dates, np.array(future_preds), rmse)
+    return forecasts
+
+def _smooth_series(df: pd.DataFrame, window: int) -> pd.DataFrame:
+    if window <= 1:
+        return df
+    df = df.copy()
+    df['count'] = df.groupby('work_mode')['count'].transform(lambda s: s.rolling(window, min_periods=1).mean())
+    return df
+
+def _to_percentage_stack(df: pd.DataFrame) -> pd.DataFrame:
+    # Convert counts to percentage-of-total per period
+    df = df.copy()
+    totals = df.groupby('period')['count'].transform('sum')
+    df['count'] = np.where(totals > 0, df['count'] / totals * 100.0, 0.0)
+    return df
+
+def plot_work_mode_trends(series_df: pd.DataFrame, forecasts: dict, config: dict, *, smooth_window: int = 1, percent: bool = True):
+    if series_df.empty:
+        st.info("No classified work-mode data to display.")
+        return
+    # Optional smoothing and normalization
+    series_proc = _smooth_series(series_df, smooth_window)
+    if percent:
+        series_proc = _to_percentage_stack(series_proc)
     fig = go.Figure()
-    
-    # Aggregate by minute/hour to show ingestion speed
-    # We use the raw 'created_at' to show density over time
-    for country in df['country'].unique():
-        country_df = df[df['country'] == country]
-        # Group by minute for granularity
-        time_series = country_df.set_index('created_at').resample('min').size()
-        
+    period_name = config['PERIOD_NAME'].capitalize()
+    # Historical stacked area
+    for mode in WORK_MODES:
+        s = series_proc[series_proc['work_mode'] == mode]
+        if s.empty:
+            continue
         fig.add_trace(go.Scatter(
-            x=time_series.index,
-            y=time_series.values,
-            mode='lines+markers',
-            name=country,
-            stackgroup='one' # Stacked area chart for volume
+            x=s['period'],
+            y=s['count'],
+            mode='lines',
+            name=f"{mode} (hist)",
+            stackgroup='workmode'
         ))
-
+    # Forecast overlays
+    colors = {"Remote": "#1f77b4", "Hybrid": "#ff7f0e", "On-site": "#2ca02c"}
+    # When displaying as percent, compute per-step totals across modes for normalization
+    totals = None
+    if percent and forecasts:
+        # Determine horizon from any mode
+        first = next(iter(forecasts.values()))
+        horizon = len(first[1]) if len(first) >= 2 else 0
+        if horizon > 0:
+            totals = np.zeros(horizon)
+            for _mode, _data in forecasts.items():
+                fy = np.array(_data[1]) if len(_data) >= 2 else np.array([])
+                if fy.size == horizon:
+                    totals += fy
+    for mode, data in forecasts.items():
+        future_x, future_y = data[0], data[1]
+        rmse_txt = f" (RMSE {data[2]:.2f})" if len(data) >= 3 and data[2] is not None else ""
+        if percent and totals is not None and len(future_y) == len(totals):
+            fy = np.array(future_y)
+            future_y = np.where(totals > 0, fy / totals * 100.0, 0.0)
+        fig.add_trace(go.Scatter(
+            x=future_x,
+            y=future_y,
+            mode='lines+markers',
+            name=f"{mode} forecast{rmse_txt}",
+            line=dict(color=colors.get(mode, None), dash='dot', width=3)
+        ))
+    y_title = "Share of Postings (%)" if percent else "Job Postings"
     fig.update_layout(
-        title="Real-Time Ingestion Volume (Last Hour)",
-        xaxis_title="Time (UTC)",
-        yaxis_title="Jobs Ingested per Minute",
-        template="plotly_dark"
+        title=f"Global Work-Mode Trends ({period_name}ly)",
+        xaxis_title=period_name,
+        yaxis_title=y_title,
+        template="plotly_dark",
+        hovermode="x unified",
+        legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01)
     )
+    # Add latest value annotations safely per mode
+    for mode in WORK_MODES:
+        dm = series_proc[series_proc['work_mode'] == mode]
+        if dm.empty:
+            continue
+        lv = dm.sort_values('period').iloc[-1]
+        suffix = '%' if percent else ''
+        fig.add_annotation(x=lv['period'], y=lv['count'], text=f"{mode}: {lv['count']:.0f}{suffix}", showarrow=True, arrowhead=1)
     st.plotly_chart(fig, use_container_width=True)
+
+def plot_work_mode_snapshot(series_df: pd.DataFrame, forecasts: dict, config: dict):
+    if series_df.empty:
+        st.info("No classified work-mode data to display.")
+        return
+    period_name = config['PERIOD_NAME'].capitalize()
+    periods = sorted(pd.to_datetime(series_df['period'].unique()))
+    if not periods:
+        st.info("No periods available for snapshot.")
+        return
+    selected = st.select_slider(f"Select {period_name}", options=periods, value=periods[-1])
+    snap = series_df[series_df['period'] == selected]
+    snap = snap.groupby('work_mode', as_index=False)['count'].sum()
+    if snap['count'].sum() == 0:
+        st.info("No postings in the selected period.")
+        return
+    colors = {"Remote": "#1f77b4", "Hybrid": "#ff7f0e", "On-site": "#2ca02c"}
+    pie = px.pie(
+        snap,
+        names='work_mode',
+        values='count',
+        title=f"Snapshot: {period_name} {selected.strftime('%Y-%m-%d')}",
+        color='work_mode',
+        color_discrete_map=colors,
+        hole=0.5
+    )
+    pie.update_traces(textposition='inside', textinfo='percent+label')
+    pie.update_layout(template='plotly_dark', legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01))
+    st.plotly_chart(pie, use_container_width=True)
+
+    # Trend indicators from latest period to next forecasted period
+    st.caption("Model next-period trend from latest data (percent shares)")
+    latest_period = series_df['period'].max()
+    latest = series_df[series_df['period'] == latest_period].groupby('work_mode')['count'].sum().to_dict()
+    # Sum forecasts across modes to get predicted total
+    pred_next = {}
+    total_pred = 0.0
+    for mode in WORK_MODES:
+        data = forecasts.get(mode)
+        if data and len(data[1]) > 0:
+            yhat1 = float(data[1][0])
+            pred_next[mode] = yhat1
+            total_pred += yhat1
+    current_total = float(sum(latest.values())) if len(latest) > 0 else 0.0
+    cols = st.columns(3)
+    for i, mode in enumerate(WORK_MODES):
+        with cols[i % 3]:
+            curr = float(latest.get(mode, 0.0))
+            nxt = float(pred_next.get(mode, np.nan))
+            if np.isnan(nxt):
+                st.metric(f"{mode}", "—", delta=None)
+            else:
+                curr_share = (curr / current_total * 100.0) if current_total > 0 else 0.0
+                pred_share = (nxt / total_pred * 100.0) if total_pred > 0 else np.nan
+                if np.isnan(pred_share):
+                    st.metric(f"{mode}", "—", delta=None)
+                else:
+                    direction = "📈" if pred_share > curr_share else ("📉" if pred_share < curr_share else "➡️")
+                    delta_pp = pred_share - curr_share
+                    st.metric(f"{mode} {direction}", f"{curr_share:.1f}% → {pred_share:.1f}%", delta=f"{delta_pp:.1f} pp")
 
 def visualize_weekly_data(data, granularity='weekly'):
     """
@@ -318,6 +464,14 @@ def run():
         """)
         st.stop()
 
+    # ---------------- MODE SELECTOR ----------------
+    st.subheader("📊 View Mode")
+    
+    mode = st.radio(
+        "Choose how to view data:",
+        ["📁 View Existing Database", "⚡ Real-time Streaming"],
+        horizontal=True
+    )
     # ---------------- TIME GRANULARITY SELECTOR ----------------
     st.subheader("⏱️ Forecast Granularity")
     granularity = st.radio(
@@ -329,15 +483,6 @@ def run():
     
     config = DEFAULT_CONFIG[granularity]
     period_name = config['PERIOD_NAME'].capitalize()
-
-    # ---------------- MODE SELECTOR ----------------
-    st.subheader("📊 View Mode")
-    
-    mode = st.radio(
-        "Choose how to view data:",
-        ["📁 View Existing Database", "⚡ Real-time Streaming"],
-        horizontal=True
-    )
 
     st.title("📊 Phase 2: AI Job Market Forecasting")
     st.markdown(f"""
@@ -371,49 +516,18 @@ def run():
         temporal_data = df.groupby(['period', 'country'], as_index=False).agg({'metric': 'sum'})
 
         all_countries = sorted(df_temporal['country'].unique())
-        #the ones with most jobs top_countries = df_temporal.groupby('country')['job_count'].sum().nlargest(3).index.tolist()
-        # Calculate RMSE for each country to find best predictions
-        country_rmse = {}
-    
-        for country in all_countries:
-            country_df = df_temporal[df_temporal['country'] == country].sort_values('period')
-        
-            if len(country_df) < config['MIN_PERIODS_REQUIRED']:
-                continue
-        
-            try:
-                df_features = create_lag_features(country_df, config)
-                train, val, test = split_data_time_series(df_features, config)
-            
-                if train.empty or test.empty:
-                    continue
-            
-                model = train_model(train, config)
-                rmse, mae, test_preds = evaluate_model(model, test, config)
-            
-                # Only include countries with meaningful predictions (average > 0)
-                if rmse is not None and test_preds is not None:
-                    avg_prediction = np.mean(test_preds)
-                    avg_actual = test['job_count'].mean()
-                
-                    # Filter: require average predictions > 0 and average actual values > threshold
-                    if avg_prediction > 0 and avg_actual > config['DATA_START_THRESHOLD']:
-                        country_rmse[country] = rmse
-            except Exception as e:
-                continue
-        
-        # Select top 3 countries with lowest RMSE (best predictions)
-        if country_rmse:
-            top_countries = sorted(country_rmse.items(), key=lambda x: x[1])[:5]
-            top_countries = [country for country, rmse in top_countries]
-        else:
-            # Fallback to countries with most jobs if no RMSE calculated
-            top_countries = df_temporal.groupby('country')['job_count'].sum().nlargest(3).index.tolist()
+        # Fixed default selection for speed; only compute for selected countries
+        preferred_defaults = ["Austria", "Bulgaria", "Poland"]
+        top_countries = [c for c in preferred_defaults if c in all_countries]
+        if not top_countries:
+            # Fallback: first three alphabetically
+            top_countries = all_countries[:3]
 
         col1, col2 = st.columns([3, 1])
         
         with col2:
             select_all = st.checkbox("Select All Countries")
+            show_overall = st.checkbox("Show Overall Aggregate", help="Aggregate selected countries into a single series and forecast.")
 
         with col1:
             if select_all:
@@ -431,19 +545,57 @@ def run():
         else:
             filtered_data = temporal_data[temporal_data['country'].isin(selected_countries)]
             visualize_weekly_data(filtered_data, granularity)
-            # Display RMSE ranking for transparency
-            if country_rmse:
-                with st.expander("📊 View Prediction Accuracy by Country"):
-                    rmse_df = pd.DataFrame(
-                        sorted(country_rmse.items(), key=lambda x: x[1]),
-                        columns=['Country', 'RMSE']
-                    )
-                    rmse_df['Rank'] = range(1, len(rmse_df) + 1)
-                    st.dataframe(
-                        rmse_df[['Rank', 'Country', 'RMSE']].style.format({'RMSE': '{:.2f}'}),
-                        hide_index=True
-                    )
-                    st.caption("Lower RMSE = More accurate predictions")
+            # RMSE ranking removed for performance; compute only for selected countries below
+
+        # Overall aggregate (batch) forecast
+        if selected_countries and 'show_overall' in locals() and show_overall:
+            st.markdown("### 🌍 Overall (Aggregate of selected)")
+            overall_df = df_temporal[df_temporal['country'].isin(selected_countries)] \
+                .groupby('period', as_index=False)['job_count'].sum() \
+                .sort_values('period')
+
+            if len(overall_df) < config['MIN_PERIODS_REQUIRED']:
+                st.info(f"Not enough historical data for Overall (need ≥ {config['MIN_PERIODS_REQUIRED']} {config['PERIOD_NAME']}s).")
+            else:
+                overall_features = create_lag_features(overall_df, config)
+                train_o, val_o, test_o = split_data_time_series(overall_features, config)
+                if train_o.empty:
+                    st.info("Insufficient data to train Overall model.")
+                else:
+                    model_o = train_model(train_o, config)
+                    rmse_o, mae_o, preds_o = evaluate_model(model_o, test_o, config)
+                    last_known_o = pd.concat([train_o, val_o, test_o]).iloc[-1]
+                    last_window_o = last_known_o[[f'lag_{l}' for l in config['LAG_FEATURES']]].values
+                    future_o = recursive_forecast(model_o, last_window_o, config)
+
+                    m1, m2, m3 = st.columns(3)
+                    m1.metric("Overall RMSE", f"{rmse_o:.2f}")
+                    next_o = int(future_o[0])
+                    current_o = int(overall_df.iloc[-1]['job_count'])
+                    m2.metric(f"Next {period_name} (Overall)", f"{next_o}", delta=next_o - current_o)
+                    trend_o = "📈 Growth" if future_o[-1] > future_o[0] else "📉 Decline"
+                    m3.metric(f"{config['FORECAST_HORIZON']}-{period_name} Trend", trend_o)
+
+                    fig_o = visualize_results("Overall", train_o, val_o, test_o, preds_o, future_o, rmse_o, config)
+                    st.plotly_chart(fig_o, use_container_width=True)
+
+        # Work-mode trends & forecast (Global)
+        with st.expander("🧪 Work-Mode Trends (Global)", expanded=True):
+            st.caption("Detection via keyword rules; Forecast via gradient boosting (XGBoost, Chen & Guestrin 2016) with time-aware split. Falls back to RandomForest if XGBoost unavailable.")
+            enable_wm = st.checkbox("Enable Work-Mode Forecast", key="wm_batch_toggle", value=True)
+            wm_snapshot = st.checkbox("Snapshot Donut with Slider", key="wm_batch_snapshot", help="View a donut for a selected period and see model trend from latest data.")
+            if enable_wm:
+                wm_series = build_work_mode_series(df_raw, config)
+                if wm_series.empty:
+                    st.info("No work-mode information found in descriptions.")
+                else:
+                    forecasts = forecast_work_mode_trends_ml(wm_series, config)
+                    if wm_snapshot:
+                        plot_work_mode_snapshot(wm_series, forecasts, config)
+                    else:
+                        # Fixed smoothing window per granularity for consistency
+                        default_smooth = 3 if granularity == 'weekly' else 7
+                        plot_work_mode_trends(wm_series, forecasts, config, smooth_window=default_smooth, percent=True)
 
         for country in selected_countries:
             st.markdown(f"### 🏳️ {country}") 
@@ -487,7 +639,7 @@ def run():
                 st.dataframe(country_df.tail(10))
 
     else:  # Real-time Streaming Mode
-        st_autorefresh(interval=3000, key="predictive_insights_refresh")
+        st_autorefresh(interval=5000, key="predictive_insights_refresh")
         
         df_raw = fetch_recent(LOOKBACK_MINUTES)
         
@@ -501,12 +653,19 @@ def run():
         temporal_data = df.groupby(['period', 'country'], as_index=False).agg({'metric': 'sum'})
 
         all_countries = sorted(temporal_data['country'].unique())
-        top_countries = df.groupby('country')['metric'].sum().nlargest(5).index.tolist()
+        # Align default selection with static mode for faster startup
+        preferred_defaults = ["Austria", "Bulgaria", "Poland"]
+        default_countries = [c for c in preferred_defaults if c in all_countries]
+        if not default_countries:
+            # Fallback: first three alphabetically
+            default_countries = all_countries[:3]
 
         col1, col2 = st.columns([3, 1])
 
         with col2:
             select_all = st.checkbox("Select All Countries")
+            show_overall_stream = st.checkbox("Show Overall Aggregate", help="Aggregate selected countries into a single series and forecast.")
+            enable_live_forecast = st.checkbox("Enable Live Forecasting", help="Train a quick Random Forest on the recent window and predict the next period.", value=True)
 
         with col1:
             if select_all:
@@ -516,7 +675,7 @@ def run():
                 selected_countries = st.multiselect(
                     "Select Countries to Compare:",
                     options=all_countries,
-                    default=top_countries
+                    default=default_countries
                 )
 
         if not selected_countries:
@@ -528,11 +687,163 @@ def run():
     
             visualize_weekly_data(filtered_data, granularity)
             
+            st.divider()
+
             df_stream = df_raw.copy()
-            df_stream['created_at'] = pd.to_datetime(df_stream['created_at'])
-            fig = px.histogram(df_stream, x="created_at", color="country", nbins=60, title="Ingestion Velocity (Events/Minute)")
+            df_stream['created_at'] = pd.to_datetime(df_stream['created_at'], errors='coerce', dayfirst=True, infer_datetime_format=True)
+            fig = px.histogram(df_stream, x="created_at", color="country", nbins=LOOKBACK_MINUTES, title=f'Job postings', #in the last {LOOKBACK_MINUTES} minutes',
+                              labels={"month of job posting"})#, "count": "Number of Job Postings", "country": "Country"})
             fig.update_layout(template="plotly_dark")
             st.plotly_chart(fig, use_container_width=True)
+
+            if enable_live_forecast:
+                st.subheader("⚡ Live Forecasts (Experimental)")
+                live_config = DEFAULT_CONFIG[granularity]
+                period_name = live_config['PERIOD_NAME'].capitalize()
+
+                # Work-mode trends & forecast (Global, placed here to match static mode positioning)
+                with st.expander("🧪 Work-Mode Trends (Global)", expanded=True):
+                    st.caption("Detection via keyword rules; Forecast via gradient boosting (XGBoost, Chen & Guestrin 2016) with time-aware split. Falls back to RandomForest if XGBoost unavailable.")
+                    enable_wm_s = st.checkbox("Enable Work-Mode Forecast (Live)", key="wm_stream_toggle", value=True)
+                    wm_snapshot_s = st.checkbox("Snapshot Donut with Slider", key="wm_stream_snapshot")
+                    if enable_wm_s:
+                        wm_series_s = build_work_mode_series(df_raw, live_config)
+                        if wm_series_s.empty:
+                            st.info("No work-mode information found in live descriptions.")
+                        else:
+                            forecasts_s = forecast_work_mode_trends_ml(wm_series_s, live_config)
+                            if wm_snapshot_s:
+                                plot_work_mode_snapshot(wm_series_s, forecasts_s, live_config)
+                            else:
+                                default_smooth_s = 3 if granularity == 'weekly' else 7
+                                plot_work_mode_trends(wm_series_s, forecasts_s, live_config, smooth_window=default_smooth_s, percent=True)
+
+                # Overall aggregate (streaming) forecast
+                if selected_countries and show_overall_stream:
+                    st.markdown("#### 🌍 Overall (Aggregate of selected)")
+                    overall_s = temporal_data[temporal_data['country'].isin(selected_countries)] \
+                        .groupby('period', as_index=False)['metric'].sum() \
+                        .rename(columns={'metric': 'job_count'}) \
+                        .sort_values('period')
+
+                    # Use lighter requirements in streaming context
+                    min_needed = max(6, len(live_config['LAG_FEATURES']) + live_config['TEST_SIZE'] + 1)
+                    if len(overall_s) < min_needed:
+                        st.info(f"Not enough recent data for Overall (need ≥ {min_needed} {live_config['PERIOD_NAME']}s).")
+                    else:
+                        try:
+                            features_o = create_lag_features(overall_s, live_config)
+                            window_rows = max(24, min(64, len(features_o)))
+                            features_o = features_o.tail(window_rows)
+
+                            unique_p = sorted(features_o['period'].unique())
+                            test_start = unique_p[-live_config['TEST_SIZE']]
+                            train_o = features_o[features_o['period'] < test_start]
+                            test_o = features_o[features_o['period'] >= test_start]
+
+                            if train_o.empty or test_o.empty:
+                                st.info("Skipping Overall: insufficient split for live training.")
+                            else:
+                                model_o = RandomForestRegressor(n_estimators=60, max_depth=8, random_state=42)
+                                X_to = train_o[[f'lag_{l}' for l in live_config['LAG_FEATURES']]]
+                                y_to = train_o['job_count']
+                                model_o.fit(X_to, y_to)
+
+                                rmse_o, mae_o, preds_o = evaluate_model(model_o, test_o, live_config)
+                                last_known_o = features_o.iloc[-1]
+                                last_window_o = last_known_o[[f'lag_{l}' for l in live_config['LAG_FEATURES']]].values
+                                future_o = recursive_forecast(model_o, last_window_o, live_config)
+
+                                next_o = int(max(0, future_o[0]))
+                                current_o = int(overall_s.iloc[-1]['job_count'])
+                                delta_o = next_o - current_o
+                                trend_o = "📈 Growth" if future_o[-1] > future_o[0] else "📉 Decline"
+
+                                c1, c2, c3 = st.columns(3)
+                                c1.metric("Overall RMSE", f"{rmse_o:.2f}")
+                                c2.metric(f"Next {period_name} (Overall)", f"{next_o}", delta=delta_o)
+                                c3.metric(f"{live_config['FORECAST_HORIZON']}-{period_name} Trend", trend_o)
+
+                                fig_o = visualize_results(
+                                    "Overall",
+                                    train_o,
+                                    pd.DataFrame(),
+                                    test_o,
+                                    preds_o,
+                                    future_o,
+                                    rmse_o,
+                                    live_config
+                                )
+                                st.plotly_chart(fig_o, use_container_width=True)
+                        except Exception:
+                            st.info("Live Overall forecast skipped due to an error.")
+
+                # Prepare per-country live models on the recent window
+                for country in selected_countries:
+                    country_df = temporal_data[temporal_data['country'] == country].sort_values('period')
+
+                    # Require minimum periods; be lighter than batch requirement
+                    min_needed = max(6, len(live_config['LAG_FEATURES']) + live_config['TEST_SIZE'] + 1)
+                    if len(country_df) < min_needed:
+                        st.info(f"Not enough recent data for {country} (need ≥ {min_needed} {live_config['PERIOD_NAME']}s).")
+                        continue
+
+                    # Map job_count-like column name to align with feature functions
+                    country_df = country_df.rename(columns={'metric': 'job_count'})
+
+                    try:
+                        features_df = create_lag_features(country_df, live_config)
+                        # Use the latest N rows to keep it fast
+                        window_rows = max(24, min(64, len(features_df)))
+                        features_df = features_df.tail(window_rows)
+
+                        # Quick train-test split: last TEST_SIZE periods as pseudo-test
+                        unique_periods = sorted(features_df['period'].unique())
+                        test_start = unique_periods[-live_config['TEST_SIZE']]
+                        train_live = features_df[features_df['period'] < test_start]
+                        test_live = features_df[features_df['period'] >= test_start]
+
+                        if train_live.empty or test_live.empty:
+                            st.info(f"Skipping {country}: insufficient split for live training.")
+                            continue
+
+                        model_live = RandomForestRegressor(n_estimators=60, max_depth=8, random_state=42)
+                        X_train = train_live[[f'lag_{l}' for l in live_config['LAG_FEATURES']]]
+                        y_train = train_live['job_count']
+                        model_live.fit(X_train, y_train)
+
+                        # Evaluate quickly on the pseudo-test
+                        rmse_live, mae_live, preds_live = evaluate_model(model_live, test_live, live_config)
+
+                        # Forecast next periods from the latest window
+                        last_known = features_df.iloc[-1]
+                        last_window = last_known[[f'lag_{l}' for l in live_config['LAG_FEATURES']]].values
+                        future_preds_live = recursive_forecast(model_live, last_window, live_config)
+
+                        next_pred = int(max(0, future_preds_live[0]))
+                        current_val = int(country_df.iloc[-1]['job_count'])
+                        delta = next_pred - current_val
+                        trend = "📈 Growth" if future_preds_live[-1] > future_preds_live[0] else "📉 Decline"
+
+                        c1, c2, c3 = st.columns(3)
+                        c1.metric(f"{country} RMSE", f"{rmse_live:.2f}")
+                        c2.metric(f"Next {period_name}", f"{next_pred}", delta=delta)
+                        c3.metric(f"{live_config['FORECAST_HORIZON']}-{period_name} Trend", trend)
+
+                        # Small overlay chart for the country
+                        fig_live = visualize_results(
+                            country,
+                            train_live,
+                            pd.DataFrame(),
+                            test_live,
+                            preds_live,
+                            future_preds_live,
+                            rmse_live,
+                            live_config
+                        )
+                        st.plotly_chart(fig_live, use_container_width=True)
+                    except Exception:
+                        st.info(f"Live forecast skipped for {country} due to an error.")
         
     st.divider()
     add_footer("Tibor Buti")
