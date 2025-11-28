@@ -4,6 +4,7 @@ Kafka Consumer - Processes LinkedIn job postings from Kafka and stores in Cassan
 import json
 import sys
 from kafka import KafkaConsumer
+import socket
 from kafka.errors import KafkaError
 from cassandra.cluster import Cluster
 from cassandra.query import SimpleStatement
@@ -15,7 +16,24 @@ if sys.platform == 'win32':
     sys.stdout.reconfigure(encoding='utf-8')
 
 # Configuration
-KAFKA_BOOTSTRAP_SERVERS = os.getenv('KAFKA_BOOTSTRAP_SERVERS', 'localhost:29092')
+# Adaptive bootstrap resolution
+_env_bootstrap = os.getenv('KAFKA_BOOTSTRAP_SERVERS')
+def _detect_bootstrap():
+    if _env_bootstrap:
+        return _env_bootstrap
+    # Prefer localhost:29092 (host Docker mapped port) if reachable
+    host_candidates = ['localhost:29092', '127.0.0.1:29092']
+    for cand in host_candidates:
+        host, port = cand.split(':')
+        try:
+            with socket.create_connection((host, int(port)), timeout=1):
+                return cand
+        except Exception:
+            continue
+    # Fallback to container network name/port
+    return 'kafka:9092'
+
+KAFKA_BOOTSTRAP_SERVERS = _detect_bootstrap()
 KAFKA_TOPIC = 'linkedin-jobs'
 KAFKA_GROUP_ID = 'linkedin-jobs-consumer-group'
 CASSANDRA_CONTACT_POINTS = os.getenv('CASSANDRA_HOSTS', '127.0.0.1').split(',')
@@ -79,7 +97,7 @@ def create_consumer():
             enable_auto_commit=False  # Manual commit for reliability
             # No consumer_timeout_ms - runs continuously for real-time streaming
         )
-        print(f"✓ Connected to Kafka, subscribed to topic: {KAFKA_TOPIC}")
+        print(f"✓ Connected to Kafka ({KAFKA_BOOTSTRAP_SERVERS}), subscribed to topic: {KAFKA_TOPIC}")
         return consumer
     except KafkaError as e:
         print(f"✗ Failed to connect to Kafka: {e}")
