@@ -61,16 +61,15 @@ main() {
   wait_health "$CASSANDRA_CONTAINER" 300
   wait_health "$KAFKA_CONTAINER" 300
 
-   # Give Cassandra extra time to fully initialize
-   echo "Waiting for Cassandra to be fully ready..."
-   sleep 10
-
   echo "[6/7] Initializing Cassandra schema (ECSF keyspace)..."
   
   if docker exec -i "$CASSANDRA_CONTAINER" cqlsh -e "DESCRIBE KEYSPACE $ECSF_KEYSPACE" >/dev/null 2>&1; then
     echo "Keyspace '$ECSF_KEYSPACE' already exists."
   else
     if [ -f "$SCHEMA_FILE" ]; then
+      # Give Cassandra extra time to fully initialize
+      echo "Waiting for Cassandra to be fully ready..."
+      sleep 10
       for i in 1 2 3; do
         echo "Attempting schema init (try $i/3)..."
         if docker exec -i "$CASSANDRA_CONTAINER" cqlsh < "$SCHEMA_FILE" 2>/dev/null; then
@@ -119,44 +118,40 @@ main() {
   LINKEDIN_KEYSPACE="linkedin_jobs"
   LINKEDIN_TABLE="jobs"
   
-  # Check if keyspace and table exist with data
-  if docker exec -i "$CASSANDRA_CONTAINER" cqlsh -e "SELECT COUNT(*) FROM $LINKEDIN_KEYSPACE.$LINKEDIN_TABLE LIMIT 1" 2>/dev/null | grep -q " 0 "; then
-    echo "No LinkedIn jobs data found. Starting streaming pipeline..."
-    
-    $COMPOSE -f "$COMPOSE_FILE" up -d kafka-consumer
-    echo "Waiting for Consumer to be fully ready..."
-    sleep 10
-    $COMPOSE -f "$COMPOSE_FILE" up -d kafka-producer
-    
-    
-    if [ "$(docker inspect -f '{{.State.ExitCode}}' kafka-producer)" != "0" ]; then
-      echo "ERROR: Producer failed."
-      docker logs kafka-producer
-      exit 1
+  # Robustly check for table existence and row count
+  if docker exec -i "$CASSANDRA_CONTAINER" cqlsh -e "DESCRIBE TABLE $LINKEDIN_KEYSPACE.$LINKEDIN_TABLE" >/dev/null 2>&1; then
+    COUNT_OUTPUT=$(docker exec -i "$CASSANDRA_CONTAINER" cqlsh --no-color -e "SELECT COUNT(*) FROM $LINKEDIN_KEYSPACE.$LINKEDIN_TABLE" 2>/dev/null | grep -o '[0-9]\+' | head -n 1)
+    COUNT_OUTPUT=${COUNT_OUTPUT:-0}
+    if [ "$COUNT_OUTPUT" -eq 0 ]; then
+      echo "No LinkedIn jobs data found. Starting streaming pipeline..."
+      $COMPOSE -f "$COMPOSE_FILE" up -d kafka-consumer
+      echo "Waiting for Consumer to be fully ready..."
+      sleep 10
+      $COMPOSE -f "$COMPOSE_FILE" up -d kafka-producer
+      if [ "$(docker inspect -f '{{.State.ExitCode}}' kafka-producer)" != "0" ]; then
+        echo "ERROR: Producer failed."
+        docker logs kafka-producer
+        exit 1
+      fi
+      if [ "$(docker inspect -f '{{.State.ExitCode}}' kafka-consumer)" != "0" ]; then
+        echo "ERROR: Consumer failed."
+        docker logs kafka-consumer
+        exit 1
+      fi
+    else
+      echo "LinkedIn jobs data already present ($COUNT_OUTPUT rows). Skipping streaming pipeline."
     fi
-    
-    if [ "$(docker inspect -f '{{.State.ExitCode}}' kafka-consumer)" != "0" ]; then
-      echo "ERROR: Consumer failed."
-      docker logs kafka-consumer
-      exit 1
-    fi
-    
-  elif docker exec -i "$CASSANDRA_CONTAINER" cqlsh -e "DESCRIBE TABLE $LINKEDIN_KEYSPACE.$LINKEDIN_TABLE" >/dev/null 2>&1; then
-    echo "LinkedIn jobs data already present. Skipping streaming pipeline."
   else
     echo "LinkedIn jobs keyspace/table doesn't exist. Starting consumer to create it..."
-    
     $COMPOSE -f "$COMPOSE_FILE" up -d kafka-consumer
     echo "Waiting for Consumer to be fully ready..."
     sleep 10
     $COMPOSE -f "$COMPOSE_FILE" up -d kafka-producer
-    
     if [ "$(docker inspect -f '{{.State.ExitCode}}' kafka-producer)" != "0" ]; then
       echo "ERROR: Producer failed."
       docker logs kafka-producer
       exit 1
     fi
-    
     if [ "$(docker inspect -f '{{.State.ExitCode}}' kafka-consumer)" != "0" ]; then
       echo "ERROR: Consumer failed."
       docker logs kafka-consumer
