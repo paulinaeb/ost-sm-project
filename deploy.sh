@@ -1,5 +1,3 @@
-# bash
-// filepath: deploy.sh
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
