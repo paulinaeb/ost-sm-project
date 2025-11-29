@@ -18,7 +18,7 @@ st.set_page_config(page_title="LinkedIn Jobs – Live Stream", layout="wide")
 # ===================== FIXED HORIZONTAL NAV BAR =====================
 st.markdown("""
     <style>
-        /* Hide the default sidebar */
+        /* Hide the default sidebar */ 
         [data-testid="stSidebar"], .st-emotion-cache-hzo1qh.eczjsme5 {
             display: none;
         }
@@ -206,6 +206,7 @@ def run_phase3():
 
     # ---------------- MODE SELECTOR ----------------
     st.subheader("View Mode")
+    st_autorefresh(interval=2000, key="phase5_auto_refresh")
 
     mode = st.radio(
         "Choose how to view data:",
