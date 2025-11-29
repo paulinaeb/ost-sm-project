@@ -483,15 +483,6 @@ def run():
     
     config = DEFAULT_CONFIG[granularity]
     period_name = config['PERIOD_NAME'].capitalize()
-
-    st.title("📊 Phase 2: AI Job Market Forecasting")
-    st.markdown(f"""
-    This module implements **Recursive Multi-step Forecasting** using a **Random Forest Ensemble**.
-    * **Scientific Approach:** Uses lag features and time-series cross-validation.
-    * **Granularity:** {period_name}ly forecasts for {config['FORECAST_HORIZON']} periods ahead
-    * **Data Filter:** Automatically detects the "significant start" of data (>{config['DATA_START_THRESHOLD']} jobs/{config['PERIOD_NAME']}) to ignore pre-collection noise.
-    *Methodology Reference: Cerqueira, V. et al. "Machine Learning vs Statistical Methods for Time Series Forecasting".*
-    """)
     
     # ---------------- FETCH DATA BASED ON MODE ----------------
     if mode == "📁 View Existing Database":
