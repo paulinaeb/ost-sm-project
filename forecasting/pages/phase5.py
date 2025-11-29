@@ -296,7 +296,7 @@ def run():
     # ============================================================
     # 5️⃣ RATE OF CHANGE (Derivative)
     # ============================================================
-    st.subheader("📈 Rate of Change (Δ jobs every 2 seconds)")
+    st.subheader("📈 Rate of Change")
 
     roc_df = pd.DataFrame()
     for job in top3:
