@@ -21,7 +21,7 @@ Its technical design follows the streaming-pipeline principles described by Nark
 
 ## ⚙️ Quick Start Guide
 
-### 0. Clone the Repository
+### Clone the Repository
 ```bash
 git clone https://github.com/paulinaeb/ost-sm-project.git
 cd ost-sm-project
@@ -66,117 +66,8 @@ If this is a brand new PowerShell session and you have not set the execution pol
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned; .\restart_simulation.ps1
 ```
 Otherwise just use `.\restart_simulation.ps1` directly.
-### Alternatively
 
-### 1. Start Docker Services
-```bash
-docker-compose up -d
-```
-
-### 2. Set Up Python Environment
-```bash
-python -m venv venv
-source venv/bin/activate   # (Linux/Mac)
-venv\Scripts\activate      # (Windows)
-pip install -r requirements.txt
-```
-
-### 3. Initialize Database Schema (for the static dataset - ECSF)
-Access the Cassandra container:
-```bash
-docker exec -it cassandra-dev cqlsh
-```
-Then, inside `cqlsh`, run:
-```sql
-SOURCE 'preprocessing/ECSF/keyspace_tables_creation.sql';
-```
-*Alternatively, copy-paste the SQL script directly into the terminal.*
-
-### 4. Load ECSF Data
-```bash
-python preprocessing/ECSF/load_ecsf.py
-```
-
-### 5. Start stream mining Job Ads!
-```powershell
-# Start consumer first (in one terminal with venv activated) - it will wait for messages & creates DB structure if needed
-python streaming\kafka_consumer.py
-
-# 2. Start producer (in another terminal with venv activated) - it will publish jobs to a kafka topic
-python streaming\kafka_producer.py
-
-# Watch as messages are consumed and stored in real-time!
-# Press Ctrl+C in consumer terminal when done
-
-# If you wish to start stream mining again, run the following command to truncate the dynamic database
-docker exec -it cassandra-dev cqlsh -e "TRUNCATE linkedin_jobs.jobs;"
-```
-### Or simply use the automated deployment scripts:
-```bash
-# Bash (Linux/macOS/WSL)
-bash deploy.sh
-
-# PowerShell (Windows)
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned
-.\deploy.ps1
-```
-Wait for **All dependencies** to be running and healthy. The deploy scripts will:
-- Build the app image
-- Start Kafka, Cassandra, UI services, and Streamlit
-- Initialize ECSF keyspace/tables and load data if needed
-- Ensure linkedin_jobs keyspace/table exist and start streaming pipeline
-
-To restart streaming cleanly using scripts:
-```powershell
-.\restart_simulation.ps1   # PowerShell
-```
-or
-```bash
-bash restart_simulation.sh    # Bash
-```
-
-
-### 6. Running in Two Modes (Docker vs Local)
-
-The producer and consumer now auto-adapt to the environment:
-
-- They first honor an explicit environment variable `KAFKA_BOOTSTRAP_SERVERS` if set.
-- Otherwise they attempt to connect to `localhost:29092` (the Docker-mapped broker port on the host).
-- If that is unreachable, they fall back to `kafka:9092` (the internal Docker Compose service name).
-
-This means you can:
-
-| Mode | Command | Bootstrap selected |
-|------|---------|--------------------|
-| Local (host) | `python streaming\kafka_consumer.py` | `localhost:29092` (if reachable) |
-| Docker exec | `docker exec -it python-app python streaming/kafka_consumer.py` | `kafka:9092` |
-| Forced override | `$env:KAFKA_BOOTSTRAP_SERVERS='kafka:9092'` then run scripts | explicit value |
-
-To force a mode explicitly (Windows PowerShell):
-```powershell
-$env:KAFKA_BOOTSTRAP_SERVERS = 'localhost:29092'  # or 'kafka:9092'
-python streaming\kafka_producer.py
-```
-
-If you see timeouts from producer/consumer:
-1. Verify broker port: `Test-NetConnection -ComputerName localhost -Port 29092`
-2. Check container health: `docker ps` and `docker logs kafka --tail 50`
-3. Confirm topic exists in Kafka UI (http://localhost:8080) or create it.
-
-### 7. Environment Setup Tips (Windows)
-
-- Prefer Python 3.11 for local runs to match the Docker image.
-- Always activate your venv before running producer/consumer:
-```powershell
-python -m venv venv
-venv\Scripts\activate
-python -m pip install -r requirements.txt
-```
-- If you see `ModuleNotFoundError: cassandra` or Kafka import errors, ensure you're using the venv interpreter and reinstall with:
-```powershell
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
-```
+### For more details and an alternative option check streaming folders README
 
 ---
 
@@ -211,6 +102,8 @@ The dashboard features horizontal navigation with the following sections:
 
 The Country Radar builds on insights from Ogryzek & Jaskulski (2025), whose GIS-based choropleth mapping shows how spatial visualisation can clarify regional labour-market patterns.
 
+The Predictive Insights module builds on Cerqueira et al. (2019) and Chen & Guestrin (2016), applying recursive multi‑step forecasting with tree‑based models (Random Forest/XGBoost) to capture non‑linear temporal dynamics and enhance short‑horizon job‑market predictions.
+
 All visualizations support dual modes:
 - **Database Mode**: Historical data analysis
 - **Streaming Mode**: Real-time updates with N-second refresh (auto-refresh enabled)
@@ -244,6 +137,35 @@ Contributions and issue reports are welcome — please open a GitHub issue or su
 
 
 **Reference:**  
-Narkhede, N., Shapira, G., & Palino, T. (2017). *Kafka: The definitive guide: Real-time data and stream processing at scale*. O'Reilly Media.
-
-Ogryzek, M., & Jaskulski, M. (2025). Applying methods of exploratory data analysis and methods of modeling the unemployment rate in spatial terms in Poland. Applied Sciences, 15(8), 4136. https://doi.org/10.3390/app15084136 
+1. (ISC)². (2023). Cybersecurity Workforce Study: How the Economy, Skills
+Gap and Artificial Intelligence are Challenging the Global Workforce.
+https://www.isc2.org/research
+2. Furnell, S. (2021). "The cybersecurity workforce and skills," Computers Security,
+100, 102080 https://doi.org/https://doi.org/10.1016/j.cose.2020.102080
+3. National Institute of Standards and Technology (NIST). (2020). NICE Workforce
+Framework for Cybersecurity (NIST Special Publication 800-181, Rev. 1). U.S.
+Department of Commerce. https://doi.org/https://doi.org/10.6028/NIST.SP.800-
+181r1
+4. ENISA. (2022). European Cybersecurity Skills Framework (ECSF). European
+Union Agency for Cybersecurity. https://www.enisa.europa.eu/topics/skills-and-
+competences/skills-development/european-cybersecurity-skills-framework-ecsf
+5. Lakshman, A., and Malik, P. (2010). Cassandra: A Decentralized Structured Storage
+System. ACM SIGOPS Operating Systems Review, 44(2), 35–40.
+6. Treuille, A., and Nielsen, A. (2020). Streamlit: A Framework for Machine Learning
+and Data Science Web Apps. Streamlit Inc. Available at: https://streamlit.io .
+7. Snow, A., Gillies, R., and Fan, A. (2022). Building Interactive Data Applications
+with Streamlit. Proceedings of the Python Web Conference. Streamlit Inc
+8. Landauer, M., Skopik, F., Stojanović, B. et al. A review of time-series analysis for
+cyber security analytics: from intrusion detection to attack prediction. Int. J. Inf.
+Secur. 24, 3 (2025). https://doi.org/https://doi.org/10.1007/s10207-024-00921-0
+9. Andrea, M., Ana, K. , Karlo, K. , Mattea, M. Insights at a
+Glance: Unravelling Spatial Trends with Bivariate Choropleth Mapping
+https://doi.org/https://doi.org/10.5194/ica-abs-7-105-2024
+10. Mrini, K., Sharma, R., Dillenbourg, P. (2017). Detecting trends
+in job advertisements. École Polytechnique Fédérale de Lausanne.
+https://infoscience.epfl.ch/record/256472
+11. Narkhede, N., Shapira, G., Palino, T. (2017). Kafka: The definitive guide: Real-
+time data and stream processing at scale. O’Reilly Media.
+12. Ogryzek, M., Jaskulski, M. (2025). Applying methods of exploratory data analysis
+and methods of modeling the unemployment rate in spatial terms in Poland. Applied
+Sciences, 15(8), 4136. https://doi.org/https://doi.org/10.3390/app15084136

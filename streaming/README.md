@@ -104,3 +104,114 @@ CREATE TABLE ecsf.linkedin_jobs (
 | Kafka UI | http://localhost:8080 | Monitor Kafka topics |
 | Cassandra CQL | localhost:9042 | Direct CQL access |
 | Kafka Broker | localhost:29092 | Producer/Consumer connection |
+
+### Manual way
+
+### 1. Start Docker Services
+```bash
+docker-compose up -d
+```
+
+### 2. Set Up Python Environment
+```bash
+python -m venv venv
+source venv/bin/activate   # (Linux/Mac)
+venv\Scripts\activate      # (Windows)
+pip install -r requirements.txt
+```
+
+### 3. Initialize Database Schema (for the static dataset - ECSF)
+Access the Cassandra container:
+```bash
+docker exec -it cassandra-dev cqlsh
+```
+Then, inside `cqlsh`, run:
+```sql
+SOURCE 'preprocessing/ECSF/keyspace_tables_creation.sql';
+```
+*Alternatively, copy-paste the SQL script directly into the terminal.*
+
+### 4. Load ECSF Data
+```bash
+python preprocessing/ECSF/load_ecsf.py
+```
+
+### 5. Start stream mining Job Ads!
+```powershell
+# Start consumer first (in one terminal with venv activated) - it will wait for messages & creates DB structure if needed
+python streaming\kafka_consumer.py
+
+# 2. Start producer (in another terminal with venv activated) - it will publish jobs to a kafka topic
+python streaming\kafka_producer.py
+
+# Watch as messages are consumed and stored in real-time!
+# Press Ctrl+C in consumer terminal when done
+
+# If you wish to start stream mining again, run the following command to truncate the dynamic database
+docker exec -it cassandra-dev cqlsh -e "TRUNCATE linkedin_jobs.jobs;"
+```
+### Or simply use the automated deployment scripts:
+```bash
+# Bash (Linux/macOS/WSL)
+bash deploy.sh
+
+# PowerShell (Windows)
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned
+.\deploy.ps1
+```
+Wait for **All dependencies** to be running and healthy. The deploy scripts will:
+- Build the app image
+- Start Kafka, Cassandra, UI services, and Streamlit
+- Initialize ECSF keyspace/tables and load data if needed
+- Ensure linkedin_jobs keyspace/table exist and start streaming pipeline
+
+To restart streaming cleanly using scripts:
+```powershell
+.\restart_simulation.ps1   # PowerShell
+```
+or
+```bash
+bash restart_simulation.sh    # Bash
+```
+
+### 6. Running in Two Modes (Docker vs Local)
+
+The producer and consumer now auto-adapt to the environment:
+
+- They first honor an explicit environment variable `KAFKA_BOOTSTRAP_SERVERS` if set.
+- Otherwise they attempt to connect to `localhost:29092` (the Docker-mapped broker port on the host).
+- If that is unreachable, they fall back to `kafka:9092` (the internal Docker Compose service name).
+
+This means you can:
+
+| Mode | Command | Bootstrap selected |
+|------|---------|--------------------|
+| Local (host) | `python streaming\kafka_consumer.py` | `localhost:29092` (if reachable) |
+| Docker exec | `docker exec -it python-app python streaming/kafka_consumer.py` | `kafka:9092` |
+| Forced override | `$env:KAFKA_BOOTSTRAP_SERVERS='kafka:9092'` then run scripts | explicit value |
+
+To force a mode explicitly (Windows PowerShell):
+```powershell
+$env:KAFKA_BOOTSTRAP_SERVERS = 'localhost:29092'  # or 'kafka:9092'
+python streaming\kafka_producer.py
+```
+
+If you see timeouts from producer/consumer:
+1. Verify broker port: `Test-NetConnection -ComputerName localhost -Port 29092`
+2. Check container health: `docker ps` and `docker logs kafka --tail 50`
+3. Confirm topic exists in Kafka UI (http://localhost:8080) or create it.
+
+### 7. Environment Setup Tips (Windows)
+
+- Prefer Python 3.11 for local runs to match the Docker image.
+- Always activate your venv before running producer/consumer:
+```powershell
+python -m venv venv
+venv\Scripts\activate
+python -m pip install -r requirements.txt
+```
+- If you see `ModuleNotFoundError: cassandra` or Kafka import errors, ensure you're using the venv interpreter and reinstall with:
+```powershell
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+```

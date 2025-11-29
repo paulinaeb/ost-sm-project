@@ -59,7 +59,23 @@ Ogryzek, M., & Jaskulski, M. (2025). Applying methods of exploratory data analys
 Author: Paulina
 
 ### 📈 Predictive Insights 
-- Time series forecasting and trend analysis
+Predictive analytics for European cybersecurity job postings:
+- **Granularity**: Weekly or daily forecasts with configurable horizon.
+- **Time-aware splits**: Train/validation/test that respect temporal order.
+- **Models**: Recursive multi‑step forecasts using Random Forest; optional XGBoost when available.
+- **Metrics**: RMSE and MAE, next‑period delta vs latest actual, multi‑step trend signal.
+- **Modes**: Batch on full database or real‑time streaming with auto‑refresh.
+- **Aggregations**: Overall (aggregate of selected countries) and per‑country forecasts.
+- **Work‑mode trends**: Remote/Hybrid/On‑site classification with global stacked trends or snapshot donut; ML forecast overlay.
+- **Visualizations**: Plotly charts for history, test predictions, and future forecast intervals.
+
+**Academic Context:**  
+This module employs a recursive multi‑step forecasting strategy with tree‑based regressors, following evidence that machine learning methods can outperform classical statistical baselines for certain time‑series sizes and regimes. Gradient boosting (XGBoost) is preferred when available due to strong tabular performance and non‑linear interactions; Random Forest offers a robust fallback requiring minimal feature scaling.
+
+**References:**  
+Cerqueira, V., et al. (2019). A comparative study of machine learning and statistical methods for time series forecasting: Size matters.  https://arxiv.org/abs/1909.13316
+Chen, T., & Guestrin, C. (2016). XGBoost: A scalable tree boosting system. https://arxiv.org/abs/1603.02754
+
 Author: Tibor
 
 ### 🔍 Matching Tracker
@@ -84,12 +100,25 @@ Database connection management:
 - **Dict factory**: Returns query results as Python dictionaries for easy DataFrame conversion
 
 ### 2. `data_utils.py`
+
 Shared data fetching utilities with caching:
 - **`fetch_recent(minutes=60)`**: Retrieves jobs from the last N minutes (cached for 3s)
 - **`fetch_all()`**: Fetches all jobs from database (cached for 30s)
 - **`get_total_count()`**: Returns total job count (cached for 2s)
 - **`fetch_all_roles_by_title()`**: Fetches ECSF role titles (cached for 20s)
 - **`fetch_all_role_with_tks()`**: Fetches ECSF roles with tasks/knowledge/skills
+
+Temporal aggregation:
+- **`preprocess_temporal_data(df, config)`**: Builds contiguous country × period job count series. Supports daily or weekly (`config['FREQ']`), trims cold-start periods below `DATA_START_THRESHOLD`, forward-fills missing periods to enable ML / chart continuity.
+
+Work‑mode classification:
+- **`classify_work_mode(text)`**: Keyword heuristic to label postings as Remote / Hybrid / On-site / Unknown from combined descriptive fields.
+- **`build_work_mode_series(df_raw, config)`**: Aggregates period × work_mode counts, excluding Unknown to reduce noise.
+
+Constants:
+- **`WORK_MODES`**: `["Remote", "Hybrid", "On-site"]` used for filtering & chart legends.
+
+```
 
 ### 3. `streamlit_app.py`
 Main application with horizontal navigation:
