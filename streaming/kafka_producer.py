@@ -8,6 +8,7 @@ import time
 import sys
 import os
 from kafka import KafkaProducer
+import socket
 from kafka.errors import KafkaError
 
 # Fix Windows console encoding for Unicode characters
@@ -15,7 +16,22 @@ if sys.platform == 'win32':
     sys.stdout.reconfigure(encoding='utf-8')
 
 # Configuration
-KAFKA_BOOTSTRAP_SERVERS = ['localhost:29092']
+# Adaptive bootstrap resolution
+_env_bootstrap = os.getenv('KAFKA_BOOTSTRAP_SERVERS')
+def _detect_bootstrap():
+    if _env_bootstrap:
+        return _env_bootstrap
+    host_candidates = ['localhost:29092', '127.0.0.1:29092']
+    for cand in host_candidates:
+        host, port = cand.split(':')
+        try:
+            with socket.create_connection((host, int(port)), timeout=1):
+                return cand
+        except Exception:
+            continue
+    return 'kafka:9092'
+
+KAFKA_BOOTSTRAP_SERVERS = _detect_bootstrap()
 KAFKA_TOPIC = 'linkedin-jobs'
 CSV_FILE_PATH = os.path.join(os.path.dirname(__file__), '..', 'dynamic_dataset', 'cleaned_linkedin_jobs.csv')
 
