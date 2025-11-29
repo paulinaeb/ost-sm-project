@@ -26,6 +26,47 @@ Its technical design follows the streaming-pipeline principles described by Nark
 git clone https://github.com/paulinaeb/ost-sm-project.git
 cd ost-sm-project
 ```
+### Automated Workflow (Recommended)
+
+Use these one-liners to get up and streaming fast:
+
+```bash
+# Linux/macOS/WSL
+bash deploy.sh
+```
+
+```powershell
+# Windows PowerShell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned
+.\deploy.ps1
+```
+
+One-line alternative (does the same in a fresh session):
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned; .\deploy.ps1
+```
+Notes:
+- `Set-ExecutionPolicy -Scope Process` only applies to the current PowerShell window and is temporary.
+- You only need to run it once per session before calling `.\deploy.ps1` (subsequent runs can omit it).
+- If your policy already allows script execution, skip it entirely and just run `.\deploy.ps1`.
+
+Then, to reset and restart streaming:
+
+```bash
+# Linux/macOS/WSL
+bash restart_simulation.sh
+```
+
+```powershell
+# Windows PowerShell
+.\restart_simulation.ps1
+```
+If this is a brand new PowerShell session and you have not set the execution policy yet, you can chain it:
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned; .\restart_simulation.ps1
+```
+Otherwise just use `.\restart_simulation.ps1` directly.
+### Alternatively
 
 ### 1. Start Docker Services
 ```bash
@@ -70,6 +111,30 @@ python streaming\kafka_producer.py
 # If you wish to start stream mining again, run the following command to truncate the dynamic database
 docker exec -it cassandra-dev cqlsh -e "TRUNCATE linkedin_jobs.jobs;"
 ```
+### Or simply use the automated deployment scripts:
+```bash
+# Bash (Linux/macOS/WSL)
+bash deploy.sh
+
+# PowerShell (Windows)
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned
+.\deploy.ps1
+```
+Wait for **All dependencies** to be running and healthy. The deploy scripts will:
+- Build the app image
+- Start Kafka, Cassandra, UI services, and Streamlit
+- Initialize ECSF keyspace/tables and load data if needed
+- Ensure linkedin_jobs keyspace/table exist and start streaming pipeline
+
+To restart streaming cleanly using scripts:
+```powershell
+.\restart_simulation.ps1   # PowerShell
+```
+or
+```bash
+bash restart_simulation.sh    # Bash
+```
+
 
 ### 6. Running in Two Modes (Docker vs Local)
 
@@ -98,15 +163,6 @@ If you see timeouts from producer/consumer:
 2. Check container health: `docker ps` and `docker logs kafka --tail 50`
 3. Confirm topic exists in Kafka UI (http://localhost:8080) or create it.
 
-To restart streaming cleanly using scripts:
-```powershell
-./restart_simulation.ps1   # PowerShell
-```
-or
-```bash
-./restart_simulation.sh    # Bash
-```
-
 ### 7. Environment Setup Tips (Windows)
 
 - Prefer Python 3.11 for local runs to match the Docker image.
@@ -120,47 +176,6 @@ python -m pip install -r requirements.txt
 ```powershell
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
-```
-Or simply with the automated deployment scripts:
-```bash
-# Bash (Linux/macOS/WSL)
-bash deploy.sh
-
-# PowerShell (Windows)
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned
-./deploy.ps1
-```
-Wait for **All dependencies** to be running and healthy. The deploy scripts will:
-- Build the app image
-- Start Kafka, Cassandra, UI services, and Streamlit
-- Initialize ECSF keyspace/tables and load data if needed
-- Ensure linkedin_jobs keyspace/table exist and start streaming pipeline
-
-### Automated Workflow (Recommended)
-
-Use these one-liners to get up and streaming fast:
-
-```bash
-# Linux/macOS/WSL
-bash deploy.sh
-```
-
-```powershell
-# Windows PowerShell
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned
-.\deploy.ps1
-```
-
-Then, to reset and restart streaming:
-
-```bash
-# Linux/macOS/WSL
-bash restart_simulation.sh
-```
-
-```powershell
-# Windows PowerShell
-.\restart_simulation.ps1
 ```
 
 ---
