@@ -4,3 +4,4 @@ preprocessing/.DS_Store
 forecasting/__pycache__/
 *.pyc
 __pycache__/
+.venv/
